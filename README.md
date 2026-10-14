@@ -8,9 +8,36 @@ every result has an actions panel: open it, open it with another app, show it
 in Files, copy it, share it, or move it to the Trash. It looks and moves like
 the Omarchy menu, because it is built from the same pieces.
 
-![Files: a live search over everything in your home](preview.png)
+![Files for Omarchy: search results and the actions panel](preview.png)
 
-![The actions panel for a file, each action with its shortcut](preview-actions.png)
+Screenshots show the actual overlay searching a synthetic home folder, not real files. The preview above combines two of them, the results for "invoice" and the actions panel for the first one, over Omarchy's ristretto wallpaper.
+
+## Screenshots
+
+<details>
+<summary>See every view</summary>
+
+### Search as you type
+
+![Results for "invoice", newest first on ties](screenshots/search.png)
+
+### Recent files
+
+![With nothing typed, the files changed most recently](screenshots/recent.png)
+
+### Actions
+
+![Tab opens every action for the selection, with its shortcut](screenshots/actions.png)
+
+### Open With
+
+![The applications registered for the file type, the default first](screenshots/open-with.png)
+
+### Browse folders
+
+![Inside a folder, with the breadcrumb in the header](screenshots/browse.png)
+
+</details>
 
 ## Install
 
