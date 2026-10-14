@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "crmne.files",
+  "name": "Files",
+  "version": "1.0.0",
+  "author": "Carmine Paolino",
+  "license": "MIT",
+  "description": "Find any file or folder in your home as you type, browse into folders, and act on what you find: open it, open it with another app, show it in Files, copy it, share it, or move it to the Trash.",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Files.qml"
+  }
+}
