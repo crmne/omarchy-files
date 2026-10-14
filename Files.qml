@@ -148,7 +148,8 @@ Item {
       hasIndex: root.hasIndex,
       indexing: root.indexing,
       selected: root.currentItem ? root.currentItem.rel : "",
-      labels: root.visibleLabels()
+      labels: root.visibleLabels(),
+      card: { x: card.x, y: card.y, width: card.width, height: card.height }
     })
   }
 
