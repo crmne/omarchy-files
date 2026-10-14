@@ -194,3 +194,17 @@ test("the cursor follows its path across refreshes, otherwise stays in range", (
   assert.equal(Model.indexAfterRefresh(rows, "/home/demo/gone", 7), 2)
   assert.equal(Model.indexAfterRefresh([], "/home/demo/a", 3), 0)
 })
+
+test("a summon payload can point the search at another absolute folder", () => {
+  assert.equal(Model.rootFrom({}, HOME), HOME)
+  assert.equal(Model.rootFrom(null, "/home/demo/"), HOME)
+  assert.equal(Model.rootFrom({ root: "/tmp/demo-home/" }, HOME), "/tmp/demo-home")
+  assert.equal(Model.rootFrom({ root: "demo-home" }, HOME), HOME, "relative roots are ignored")
+  assert.equal(Model.rootFrom({ root: "/tmp/../etc" }, HOME), HOME)
+  assert.equal(Model.rootFrom({ root: 42 }, HOME), HOME)
+
+  const item = Model.itemFor("/tmp/demo-home", "Documents/notes.md")
+  assert.equal(item.path, "/tmp/demo-home/Documents/notes.md")
+  assert.equal(item.detail, "~/Documents")
+  assert.equal(Model.commandFor("copyPath", item, { home: "/tmp/demo-home" })[5], "~/Documents/notes.md")
+})

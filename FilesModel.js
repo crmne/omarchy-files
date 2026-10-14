@@ -108,6 +108,14 @@ function itemFor(home, rel) {
   }
 }
 
+// The folder searched: $HOME, or an absolute folder a summon payload names
+// (demo content for screenshots). Relative or odd values fall back to home.
+function rootFrom(payload, home) {
+  var asked = payload && typeof payload.root === "string" ? payload.root.replace(/\/+$/, "") : ""
+  if (!asked || asked.charAt(0) !== "/" || /(^|\/)\.\.(\/|$)/.test(asked)) return trimSlash(home)
+  return asked
+}
+
 // Index or listing output to rows. Lines for paths the session has already
 // trashed are dropped, since the index only learns about it on its next build.
 function rowsFromOutput(home, text, removed) {
@@ -344,6 +352,7 @@ if (typeof module !== "undefined") {
     parentRel: parentRel,
     displayFolder: displayFolder,
     itemFor: itemFor,
+    rootFrom: rootFrom,
     rowsFromOutput: rowsFromOutput,
     isEditable: isEditable,
     actionsFor: actionsFor,

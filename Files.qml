@@ -15,7 +15,8 @@ Item {
   property var manifest: null
 
   readonly property string pluginId: (root.manifest && root.manifest.id) || "crmne.files"
-  readonly property string home: Quickshell.env("HOME")
+  // Where the search looks: $HOME, unless a summon payload names a folder.
+  property string home: Quickshell.env("HOME")
   readonly property string helper: decodeURIComponent(String(Qt.resolvedUrl("bin/crmne-files")).replace(/^file:\/\//, ""))
   readonly property int resultLimit: 200
   // Rebuild the index on open once it is older than this many seconds.
@@ -95,11 +96,13 @@ Item {
   // ------------------------------------------------------------ lifecycle
 
   // payloadJson may carry {"query": "...", "scope": "Downloads"} to open
-  // straight onto a search or a folder.
+  // straight onto a search or a folder, and {"root": "/abs/path"} to search
+  // a folder other than $HOME.
   function open(payloadJson) {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
 
+    root.home = Model.rootFrom(payload, Quickshell.env("HOME"))
     root.view = "results"
     root.scopeStack = []
     root.scope = String(payload.scope || "").replace(/^\/+|\/+$/g, "")
@@ -159,7 +162,7 @@ Item {
 
   function refreshIndex() {
     if (indexProc.running) return
-    indexProc.command = [root.helper, "index", String(root.indexMaxAge)]
+    indexProc.command = [root.helper, "--root", root.home, "index", String(root.indexMaxAge)]
     indexProc.running = true
   }
 
@@ -176,8 +179,8 @@ Item {
   function runSearch() {
     root.searchSerial += 1
     root.wantedCommand = (!root.query && root.scope)
-      ? [root.helper, "list", root.scope]
-      : [root.helper, "search", root.query, root.scope]
+      ? [root.helper, "--root", root.home, "list", root.scope]
+      : [root.helper, "--root", root.home, "search", root.query, root.scope]
     // A search still running belongs to an older query: stop it, and its exit
     // starts this one.
     if (searchProc.running) searchProc.running = false
