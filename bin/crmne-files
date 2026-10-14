@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# Index, search, and list files under $HOME for the crmne.files overlay.
+#
+#   crmne-files index [max-age-seconds]   rebuild the index if missing or older
+#   crmne-files search <query> [folder]   fuzzy-match the index, best first
+#   crmne-files list <folder>             a folder's children, folders first
+#   crmne-files apps <path>               applications that open <path>
+#
+# Paths go in and come out relative to $HOME, folders with a trailing slash.
+# The query is only ever an argument here, never part of a shell string.
+
+set -uo pipefail
+
+# Folders skipped by name anywhere under $HOME, on top of hidden files and
+# everything .gitignore already excludes. Edit to taste.
+EXCLUDES=(go Android)
+
+# Results returned for one search, and children shown for one folder.
+LIMIT=200
+LIST_LIMIT=500
+
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/crmne-files"
+index="$cache_dir/index"
+
+build_index() {
+  mkdir -p "$cache_dir" || return 1
+
+  # One build at a time: a second caller waits for the first and then finds a
+  # fresh index instead of starting its own.
+  exec 9>"$cache_dir/lock"
+  flock 9
+
+  if [[ -n ${1:-} && -s $index ]]; then
+    local age=$(($(date +%s) - $(stat --format %Y "$index")))
+    if ((age < $1)); then
+      echo fresh
+      return 0
+    fi
+  fi
+
+  local excludes=() name
+  for name in "${EXCLUDES[@]}"; do excludes+=(--exclude "$name"); done
+
+  local tmp
+  tmp=$(mktemp "$cache_dir/index.XXXXXX") || return 1
+
+  # Newest first, so an empty search lists what changed last and fzf breaks
+  # score ties in favour of recent files. Names holding a newline are dropped:
+  # the index is one path per line.
+  cd "$HOME" || return 1
+  fd --type f --type d "${excludes[@]}" --print0 . |
+    xargs -0 -r stat --printf '%Y\t%n\0' 2>/dev/null |
+    LC_ALL=C sort -z -t $'\t' -k1,1rn |
+    gawk 'BEGIN { RS = "\0"; ORS = "\n" }
+      index($0, "\n") { next }
+      { sub(/^[0-9]+\t(\.\/)?/, ""); if ($0 != "") print }' >"$tmp"
+
+  mv -f "$tmp" "$index"
+  echo built
+}
+
+search() {
+  local query=$1 folder=${2:-}
+  [[ -s $index ]] || exit 3
+
+  # Nothing typed: the newest files. Folders are left out here because their
+  # time changes whenever anything inside them does, which buries real work
+  # under build and cache directories.
+  if [[ -z $folder && -z $query ]]; then
+    grep -v '/$' "$index" | head -n "$LIMIT"
+    return 0
+  fi
+
+  if [[ -z $folder ]]; then
+    fzf --filter "$query" --tiebreak=index <"$index" | head -n "$LIMIT"
+    return 0
+  fi
+
+  # Scoped: match against the part below the folder only, so the folder's own
+  # name does not make every entry match, then put the prefix back.
+  local prefix="${folder%/}/"
+  LC_ALL=C gawk -v p="$prefix" 'substr($0, 1, length(p)) == p && length($0) > length(p) { print substr($0, length(p) + 1) }' "$index" |
+    fzf --filter "$query" --tiebreak=index |
+    head -n "$LIMIT" |
+    gawk -v p="$prefix" '{ print p $0 }'
+}
+
+list() {
+  local folder=${1%/}
+  local dir="$HOME/$folder"
+  [[ -d $dir ]] || exit 4
+
+  # Hidden entries stay out, as they do in the index.
+  find "$dir" -mindepth 1 -maxdepth 1 ! -name '.*' ! -name $'*\n*' \( -type d -printf '0\t%f/\n' -o -printf '1\t%f\n' \) 2>/dev/null |
+    sort -t $'\t' -k1,1n -k2,2f |
+    head -n "$LIST_LIMIT" |
+    gawk -v p="$folder/" '{ sub(/^[01]\t/, ""); print p $0 }'
+}
+
+desktop_file() {
+  local id=$1 dir
+  local dirs=("${XDG_DATA_HOME:-$HOME/.local/share}")
+  IFS=: read -ra more <<<"${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+  dirs+=("${more[@]}")
+  for dir in "${dirs[@]}"; do
+    [[ -f $dir/applications/$id ]] && { printf '%s\n' "$dir/applications/$id"; return 0; }
+  done
+  return 1
+}
+
+apps() {
+  local path=$1 mime default id file name icon hidden
+  mime=$(xdg-mime query filetype "$path" 2>/dev/null)
+  [[ -d $path ]] && mime=inode/directory
+  [[ -n $mime ]] || exit 0
+  default=$(xdg-mime query default "$mime" 2>/dev/null)
+
+  local seen=" "
+  while IFS= read -r id; do
+    [[ $seen == *" $id "* ]] && continue
+    seen+="$id "
+    file=$(desktop_file "$id") || continue
+    # The first Name and Icon of the [Desktop Entry] group, before any action.
+    IFS=$'\037' read -r name icon hidden < <(gawk '
+      /^\[/ { group = $0; next }
+      group != "[Desktop Entry]" { next }
+      /^Name=/ && name == "" { name = substr($0, 6) }
+      /^Icon=/ && icon == "" { icon = substr($0, 6) }
+      /^(Hidden|NoDisplay)=true/ { hidden = 1 }
+      END { gsub(/[\t\037]/, " ", name); printf "%s\037%s\037%d\n", name, icon, hidden }' "$file")
+    [[ $hidden == 1 || -z $name ]] && continue
+    printf '%s\t%s\t%s\t%s\n' "$id" "$name" "$icon" "$([[ $id == "$default" ]] && echo 1 || echo 0)"
+  done < <({ [[ -n $default ]] && printf '%s\n' "$default"; gio mime "$mime" 2>/dev/null | gawk '/^\t/ { sub(/^\t/, ""); print }'; })
+}
+
+case "${1:-}" in
+  index) build_index "${2:-}" ;;
+  search) search "${2-}" "${3:-}" ;;
+  list) list "${2:-}" ;;
+  apps) apps "${2:?path}" ;;
+  *)
+    echo "Usage: crmne-files index [max-age] | search <query> [folder] | list <folder> | apps <path>" >&2
+    exit 2
+    ;;
+esac
