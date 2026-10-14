@@ -8,6 +8,10 @@ every result has an actions panel: open it, open it with another app, show it
 in Files, copy it, share it, or move it to the Trash. It looks and moves like
 the Omarchy menu, because it is built from the same pieces.
 
+![Files: a live search over everything in your home](preview.png)
+
+![The actions panel for a file, each action with its shortcut](preview-actions.png)
+
 ## Install
 
 ```bash
@@ -20,8 +24,17 @@ Then summon it with:
 omarchy-shell shell toggle crmne.files
 ```
 
-Bind that to a key in `~/.config/hypr/bindings.lua`, or add it to the Omarchy
-menu (see below).
+## Shortcut
+
+Omarchy plugins cannot declare key bindings, so bind it yourself in
+`~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + CTRL + SLASH", "Find files", "omarchy-shell shell toggle crmne.files")
+```
+
+`Super Ctrl /` sits next to Omarchy's own pickers on `Super Ctrl` and a letter,
+without taking `Super Ctrl F`, which is tiled fullscreen.
 
 ## Requirements
 
@@ -50,8 +63,9 @@ going back restores the search and selection you came from.
 |---|---|
 | typing | filter the actions |
 | `↵` | run the action |
-| `→` | open the Open With list |
-| `Esc`, `⇧ ⇥`, or `←` | back to the results, search and selection intact |
+| `→` | open the Open With list, where `↵` launches the app |
+| `Esc` | clear the filter, then go back |
+| `⇧ ⇥`, `Ctrl K`, or `←` or `Backspace` on an empty filter | back to the results, search and selection intact |
 
 ## Actions
 
@@ -93,11 +107,11 @@ To skip other folders, edit `EXCLUDES` at the top of `bin/crmne-files`.
 
 ## Omarchy menu
 
-To find it from the Omarchy menu, add this line to
+To find it from the Omarchy menu as well, add this line to
 `~/.config/omarchy/extensions/omarchy-menu.jsonc`:
 
 ```jsonc
-"files": {"icon":"󰥨","label":"Files","aliases":["files","find","search files"],"action":"omarchy-shell shell toggle crmne.files"},
+"files": {"icon":"󰥨","label":"Find Files","aliases":["files","find","search files"],"action":"omarchy-shell shell toggle crmne.files"},
 ```
 
 ## IPC
@@ -106,6 +120,7 @@ To find it from the Omarchy menu, add this line to
 omarchy-shell shell toggle crmne.files                             # open or close
 omarchy-shell shell summon crmne.files '{"query":"invoice"}'       # open on a search
 omarchy-shell shell summon crmne.files '{"scope":"Downloads"}'     # open inside a folder
+omarchy-shell shell summon crmne.files '{"root":"/tmp/demo"}'      # search another folder (for demos)
 omarchy-shell shell call crmne.files state ""                      # what it is showing, as JSON
 ```
 
@@ -138,6 +153,7 @@ bin/crmne-files index            # build the index now
 bin/crmne-files search "tax 2025"
 bin/crmne-files list Downloads
 bin/crmne-files apps ~/Pictures/photo.jpg
+bin/crmne-files --root /tmp/demo search notes   # any folder in place of ~
 ```
 
 The search text and every path are passed as arguments, never pasted into a
