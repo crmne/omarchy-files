@@ -208,3 +208,19 @@ test("a summon payload can point the search at another absolute folder", () => {
   assert.equal(item.detail, "~/Documents")
   assert.equal(Model.commandFor("copyPath", item, { home: "/tmp/demo-home" })[5], "~/Documents/notes.md")
 })
+
+test("the search and Open With calls keep what was typed off the command line", () => {
+  const search = Model.searchCommand("/plugin/bin/crmne-files", HOME, "tax 2025", "Documents")
+  assert.deepEqual(search.command, ["/plugin/bin/crmne-files", "--root", HOME, "search"])
+  assert.deepEqual(search.environment, { CRMNE_FILES_QUERY: "tax 2025", CRMNE_FILES_FOLDER: "Documents" })
+
+  const listing = Model.searchCommand("/plugin/bin/crmne-files", HOME, "", "Documents")
+  assert.deepEqual(listing.command, ["/plugin/bin/crmne-files", "--root", HOME, "list"])
+  assert.deepEqual(listing.environment, { CRMNE_FILES_QUERY: "", CRMNE_FILES_FOLDER: "Documents" })
+
+  assert.deepEqual(Model.searchCommand("h", HOME, "", "").command, ["h", "--root", HOME, "search"])
+
+  const apps = Model.appsCommand("/plugin/bin/crmne-files", "/home/demo/Documents/taxes.pdf")
+  assert.deepEqual(apps.command, ["/plugin/bin/crmne-files", "apps"])
+  assert.deepEqual(apps.environment, { CRMNE_FILES_PATH: "/home/demo/Documents/taxes.pdf" })
+})

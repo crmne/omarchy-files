@@ -170,21 +170,26 @@ Rows, icons, the actions each item gets, shortcuts, breadcrumbs, and the
 commands every action runs live in `FilesModel.js` as pure functions:
 
 ```bash
-node --test tests/model.test.js
+node --test tests/
 ```
 
 The helper is usable on its own:
 
 ```bash
 bin/crmne-files index            # build the index now
-bin/crmne-files search "tax 2025"
-bin/crmne-files list Downloads
-bin/crmne-files apps ~/Pictures/photo.jpg
-bin/crmne-files --root /tmp/demo search notes   # any folder in place of ~
+CRMNE_FILES_QUERY="tax 2025" bin/crmne-files search
+CRMNE_FILES_FOLDER=Downloads bin/crmne-files list
+CRMNE_FILES_PATH=~/Pictures/photo.jpg bin/crmne-files apps
+CRMNE_FILES_QUERY=notes bin/crmne-files --root /tmp/demo search   # any folder in place of ~
 ```
 
-The search text and every path are passed as arguments, never pasted into a
-shell command, so a file named `$(anything)` stays a file name.
+What you type, the folder you are in, and the file Open With looks up travel
+in the helper's environment, never on a command line, where other users on
+the machine could read them. `tests/helper.test.js` runs the helper and checks
+the command line of everything it starts.
+
+The search text and every path are never pasted into a shell command, so a
+file named `$(anything)` stays a file name.
 
 ## License
 

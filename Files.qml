@@ -50,7 +50,7 @@ Item {
   property bool searching: searchProc.running || debounce.running
   property bool indexing: indexProc.running
   property int searchSerial: 0
-  property var wantedCommand: []
+  property var wantedSearch: null
 
   property bool trashConfirmOpen: false
   property var trashTarget: null
@@ -179,9 +179,7 @@ Item {
 
   function runSearch() {
     root.searchSerial += 1
-    root.wantedCommand = (!root.query && root.scope)
-      ? [root.helper, "--root", root.home, "list", root.scope]
-      : [root.helper, "--root", root.home, "search", root.query, root.scope]
+    root.wantedSearch = Model.searchCommand(root.helper, root.home, root.query, root.scope)
     // A search still running belongs to an older query: stop it, and its exit
     // starts this one.
     if (searchProc.running) searchProc.running = false
@@ -191,7 +189,8 @@ Item {
   function startSearch() {
     searchProc.collected = ""
     searchProc.serial = root.searchSerial
-    searchProc.command = root.wantedCommand
+    searchProc.command = root.wantedSearch.command
+    searchProc.environment = root.wantedSearch.environment
     searchProc.running = true
   }
 
@@ -284,7 +283,9 @@ Item {
     pointerGate.reset()
     root.rebuildDisplay()
     appsProc.collected = ""
-    appsProc.command = [root.helper, "apps", root.actionTarget.path]
+    var call = Model.appsCommand(root.helper, root.actionTarget.path)
+    appsProc.command = call.command
+    appsProc.environment = call.environment
     appsProc.running = true
   }
 

@@ -343,6 +343,29 @@ function indexAfterRefresh(rows, previousPath, previousIndex) {
   return Math.max(0, Math.min(previousIndex || 0, rows.length - 1))
 }
 
+// The helper call for what the overlay shows: a folder's listing when nothing
+// is typed inside one, a search otherwise. What was typed and the folder go in
+// the environment, which only the user can read, never on a command line,
+// which every user on the machine can.
+function searchCommand(helper, home, query, scope) {
+  return {
+    command: [helper, "--root", home, (!query && scope) ? "list" : "search"],
+    environment: {
+      CRMNE_FILES_QUERY: String(query || ""),
+      CRMNE_FILES_FOLDER: String(scope || "")
+    }
+  }
+}
+
+// The helper call that lists the applications for Open With, the file's path
+// in the environment for the same reason.
+function appsCommand(helper, path) {
+  return {
+    command: [helper, "apps"],
+    environment: { CRMNE_FILES_PATH: String(path || "") }
+  }
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     ICONS: ICONS,
@@ -365,6 +388,8 @@ if (typeof module !== "undefined") {
     footerStatus: footerStatus,
     fileUri: fileUri,
     commandFor: commandFor,
+    searchCommand: searchCommand,
+    appsCommand: appsCommand,
     parseApps: parseApps,
     filterApps: filterApps,
     indexAfterRefresh: indexAfterRefresh

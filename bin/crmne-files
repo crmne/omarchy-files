@@ -4,12 +4,19 @@
 #
 #   crmne-files [--root DIR] <command>    search DIR instead of $HOME
 #   crmne-files index [max-age-seconds]   rebuild the index if missing or older
-#   crmne-files search <query> [folder]   fuzzy-match the index, best first
-#   crmne-files list <folder>             a folder's children, folders first
-#   crmne-files apps <path>               applications that open <path>
+#   crmne-files search                    fuzzy-match the index, best first
+#   crmne-files list                      a folder's children, folders first
+#   crmne-files apps                      applications that open a file
+#
+# The rest comes in the environment, never as arguments: CRMNE_FILES_QUERY
+# holds the query, CRMNE_FILES_FOLDER the folder to search or list, and
+# CRMNE_FILES_PATH the file apps looks up. Process arguments can be read by
+# other users on the same machine, a process's environment only by its owner,
+# so none of these reaches the command line of this script or of anything it
+# runs.
 #
 # Paths go in and come out relative to the root ($HOME unless --root), folders with a trailing slash.
-# The query is only ever an argument here, never part of a shell string.
+# The query is never part of a shell string.
 
 set -uo pipefail
 
@@ -58,10 +65,11 @@ build_index() {
 
   # Newest first, so an empty search lists what changed last and fzf breaks
   # score ties in favour of recent files. Names holding a newline are dropped:
-  # the index is one path per line.
+  # the index is one path per line. gawk reads each time itself, so no file
+  # name lands on a command line the way it would through xargs stat.
   cd "$root" || return 1
   fd --type f --type d "${excludes[@]}" --print0 . |
-    xargs -0 -r stat --printf '%Y\t%n\0' 2>/dev/null |
+    gawk -l filefuncs 'BEGIN { RS = "\0"; ORS = "\0" } stat($0, st) == 0 { print st["mtime"] "\t" $0 }' |
     LC_ALL=C sort -z -t $'\t' -k1,1rn |
     gawk 'BEGIN { RS = "\0"; ORS = "\n" }
       index($0, "\n") { next }
@@ -71,8 +79,15 @@ build_index() {
   echo built
 }
 
+# fzf reads the query from its environment, quoted for its option parser.
+filter() {
+  local query=${CRMNE_FILES_QUERY:-}
+  local quoted=${query//\'/\'\\\'\'}
+  FZF_DEFAULT_OPTS="${FZF_DEFAULT_OPTS:-} --filter='$quoted'" fzf --tiebreak=index
+}
+
 search() {
-  local query=$1 folder=${2:-}
+  local query=${CRMNE_FILES_QUERY:-} folder=${CRMNE_FILES_FOLDER:-}
   [[ -s $index ]] || exit 3
 
   # Nothing typed: the newest files. Folders are left out here because their
@@ -84,29 +99,34 @@ search() {
   fi
 
   if [[ -z $folder ]]; then
-    fzf --filter "$query" --tiebreak=index <"$index" | head -n "$LIMIT"
+    filter <"$index" | head -n "$LIMIT"
     return 0
   fi
 
   # Scoped: match against the part below the folder only, so the folder's own
   # name does not make every entry match, then put the prefix back.
-  local prefix="${folder%/}/"
-  LC_ALL=C gawk -v p="$prefix" 'substr($0, 1, length(p)) == p && length($0) > length(p) { print substr($0, length(p) + 1) }' "$index" |
-    fzf --filter "$query" --tiebreak=index |
+  local -x CRMNE_FILES_PREFIX="${folder%/}/"
+  LC_ALL=C gawk 'BEGIN { p = ENVIRON["CRMNE_FILES_PREFIX"] }
+    substr($0, 1, length(p)) == p && length($0) > length(p) { print substr($0, length(p) + 1) }' "$index" |
+    filter |
     head -n "$LIMIT" |
-    gawk -v p="$prefix" '{ print p $0 }'
+    gawk '{ print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'
 }
 
 list() {
-  local folder=${1%/}
+  local folder=${CRMNE_FILES_FOLDER:-}
+  folder=${folder%/}
+  local -x CRMNE_FILES_PREFIX="$folder/"
   local dir="$root/$folder"
   [[ -d $dir ]] || exit 4
 
-  # Hidden entries stay out, as they do in the index.
-  find "$dir" -mindepth 1 -maxdepth 1 ! -name '.*' ! -name $'*\n*' \( -type d -printf '0\t%f/\n' -o -printf '1\t%f\n' \) 2>/dev/null |
+  # Hidden entries stay out, as they do in the index. Listing . from inside
+  # the folder keeps its name off find's command line.
+  cd "$dir" || exit 4
+  find . -mindepth 1 -maxdepth 1 ! -name '.*' ! -name $'*\n*' \( -type d -printf '0\t%f/\n' -o -printf '1\t%f\n' \) 2>/dev/null |
     sort -t $'\t' -k1,1n -k2,2f |
     head -n "$LIST_LIMIT" |
-    gawk -v p="$folder/" '{ sub(/^[01]\t/, ""); print p $0 }'
+    gawk '{ sub(/^[01]\t/, ""); print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'
 }
 
 desktop_file() {
@@ -121,9 +141,15 @@ desktop_file() {
 }
 
 apps() {
-  local path=$1 mime default id file name icon hidden
-  mime=$(xdg-mime query filetype "$path" 2>/dev/null)
-  [[ -d $path ]] && mime=inode/directory
+  local path=${CRMNE_FILES_PATH:?CRMNE_FILES_PATH} mime="" default id file name icon hidden
+  # What xdg-mime query filetype runs here, reading the file on stdin so its
+  # name stays off file's command line. Only regular files are read: opening
+  # a pipe would wait forever, and nothing opens one anyway.
+  if [[ -d $path ]]; then
+    mime=inode/directory
+  elif [[ -f $path ]]; then
+    mime=$(file --brief --mime-type - <"$path" 2>/dev/null)
+  fi
   [[ -n $mime ]] || exit 0
   default=$(xdg-mime query default "$mime" 2>/dev/null)
 
@@ -147,11 +173,11 @@ apps() {
 
 case "${1:-}" in
   index) build_index "${2:-}" ;;
-  search) search "${2-}" "${3:-}" ;;
-  list) list "${2:-}" ;;
-  apps) apps "${2:?path}" ;;
+  search) search ;;
+  list) list ;;
+  apps) apps ;;
   *)
-    echo "Usage: crmne-files [--root DIR] index [max-age] | search <query> [folder] | list <folder> | apps <path>" >&2
+    echo "Usage: crmne-files [--root DIR] index [max-age] | search | list | apps" >&2
     exit 2
     ;;
 esac
