@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Renders preview.png, the marketplace card: the real overlay searching a
+# made-up home folder for "invoice", and its actions panel, captured by
+# tools/preview/shell.qml and composed by tools/render-preview-card.py.
+# Nothing under the real $HOME is listed, indexed or themed from. Needs a running Wayland
+# session, since the overlay is a layer-shell surface; it is on screen for a
+# few seconds and takes the keyboard while it is.
+set -euo pipefail
+
+repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+shell_dir=${OMARCHY_PATH:-/usr/share/omarchy}/shell
+work=$(mktemp -d "${TMPDIR:-/tmp}/files-preview.XXXXXX")
+trap 'rm -rf -- "$work"' EXIT
+
+# ---- A made-up home folder, with recent changes on top.
+home="$work/home"
+mkdir -p "$home"
+files=(
+  "Documents/Invoices/2026/2026-03 Northwind Studio invoice.pdf"
+  "Documents/Invoices/2026/2026-02 Northwind Studio invoice.pdf"
+  "Documents/Invoices/2026/2026-01 Hosting invoice.pdf"
+  "Documents/Invoices/2025/2025-12 Northwind Studio invoice.pdf"
+  "Documents/Invoices/2025/2025-11 Domain renewal invoice.pdf"
+  "Documents/Invoices/invoice-template.odt"
+  "Documents/Resume 2026.pdf"
+  "Documents/Taxes/2025 tax return.pdf"
+  "Documents/Taxes/receipts.zip"
+  "Documents/Notes/meeting notes.md"
+  "Documents/Notes/reading list.md"
+  "Documents/Notes/ideas.txt"
+  "Downloads/invoice-acme-design-0412.pdf"
+  "Downloads/invoice-scan.jpg"
+  "Downloads/font-pack.tar.gz"
+  "Downloads/manual.pdf"
+  "Projects/weather-cli/README.md"
+  "Projects/weather-cli/Cargo.toml"
+  "Projects/weather-cli/src/main.rs"
+  "Projects/weather-cli/src/forecast.rs"
+  "Projects/recipe-box/README.md"
+  "Projects/recipe-box/Gemfile"
+  "Projects/recipe-box/app/models/recipe.rb"
+  "Projects/recipe-box/app/models/invoice.rb"
+  "Projects/recipe-box/docs/invoices.md"
+  "Pictures/Trips/Lisbon/tram.jpg"
+  "Pictures/Trips/Lisbon/sunset.jpg"
+  "Pictures/Wallpapers/dunes.png"
+  "Music/Morning Light.flac"
+  "Music/Late Train.mp3"
+  "Videos/Lisbon timelapse.mp4"
+)
+for f in "${files[@]}"; do
+  mkdir -p "$home/$(dirname -- "$f")"
+  printf 'placeholder\n' >"$home/$f"
+done
+n=0
+while IFS= read -r -d '' f; do
+  touch -h -d "-$((10 + n)) days" "$f"
+  n=$((n + 1))
+done < <(find "$home" -mindepth 1 -print0 | sort -z)
+n=0
+for f in "Documents/Invoices/2026/2026-03 Northwind Studio invoice.pdf" "Projects/weather-cli/src/forecast.rs" \
+  "Documents/Notes/meeting notes.md" "Downloads/invoice-acme-design-0412.pdf" "Pictures/Trips/Lisbon/tram.jpg" \
+  "Documents/Resume 2026.pdf" "Projects/recipe-box/app/models/invoice.rb" "Downloads/invoice-scan.jpg" \
+  "Music/Morning Light.flac" "Projects/weather-cli/README.md" \
+  "Documents/Invoices/2026/2026-02 Northwind Studio invoice.pdf" "Documents/Taxes/2025 tax return.pdf"; do
+  touch -d "-$((n * 37 + 5)) minutes" "$home/$f"
+  n=$((n + 1))
+done
+
+# ---- A private $HOME for the shell, in Omarchy's ristretto theme like the
+# other plugin previews, whatever theme this machine runs.
+user="$work/user"
+theme="$user/.local/state/omarchy/current/next-theme"
+mkdir -p "$theme" "$user/.config/fontconfig"
+cp "${OMARCHY_PATH:-/usr/share/omarchy}/themes/ristretto/colors.toml" "$theme/colors.toml"
+HOME="$user" omarchy-theme-set-templates >/dev/null
+cp -r "$theme" "$theme/../theme"
+cat >"$user/.config/fontconfig/fonts.conf" <<'XML'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig>
+<match target="pattern"><test name="family"><string>monospace</string></test>
+<edit name="family" mode="assign" binding="strong"><string>JetBrainsMono Nerd Font</string></edit></match>
+</fontconfig>
+XML
+
+# ---- Capture the overlay with the shell's own Commons and Ui.
+ln -s "$shell_dir/Commons" "$work/Commons"
+ln -s "$shell_dir/Ui" "$work/Ui"
+ln -s "$repo" "$work/plugin"
+cp "$repo/tools/preview/shell.qml" "$work/shell.qml"
+mkdir -p "$work/out" "$work/cache"
+
+# The index for the demo folder goes in the work folder, not ~/.cache.
+HOME="$user" XDG_CACHE_HOME="$work/cache" FILES_PREVIEW_OUT="$work/out" FILES_PREVIEW_HOME="$home" \
+  timeout 60s quickshell -p "$work" --no-color >"$work/log" 2>&1 || true
+
+if grep -E "TypeError|ReferenceError|SyntaxError|is not a function|is not defined" "$work/log"; then
+  echo "QML errors while rendering; see above." >&2
+  exit 1
+fi
+for name in search.png actions.png; do
+  [[ -s "$work/out/$name" ]] || { cat "$work/log" >&2; echo "missing $name" >&2; exit 1; }
+done
+
+python3 "$repo/tools/render-preview-card.py" "$work/out"
