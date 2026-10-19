@@ -8,14 +8,34 @@ every result has an actions panel: open it, open it with another app, show it
 in Files, copy it, share it, or move it to the Trash. It looks and moves like
 the Omarchy menu, because it is built from the same pieces.
 
-![Files for Omarchy: search results and the actions panel](preview.png)
+![Files for Omarchy: search results and a Neovim-themed code preview](preview.png)
 
-Screenshots show the actual overlay searching a synthetic home folder, not real files. The preview above combines two of them, the results for "invoice" and the actions panel for the first one, over Omarchy's ristretto wallpaper.
+Screenshots show the actual overlay searching synthetic files. The marketplace image shows code highlighted by Neovim using the configured theme, over Omarchy's ristretto wallpaper.
+
+Code, PDFs, images, documents, archives and media can be previewed beside your
+results. Code uses your configured Neovim theme and the system font. Audio plays
+only when requested; video previews show seekable frames.
 
 ## Screenshots
 
 <details>
 <summary>See every view</summary>
+
+### Code in your Neovim theme
+
+![Neovim-themed code beside search results](screenshots/preview-code.png)
+
+### PDF pages
+
+![Rendered PDF page and page navigation](screenshots/preview-pdf.png)
+
+### Audio previews
+
+![Explicit audio playback and seeking](screenshots/preview-audio.png)
+
+### Settings inside the overlay
+
+![Search, preview and shortcut settings](screenshots/preview-settings.png)
 
 ### Search as you type
 
@@ -68,6 +88,10 @@ shortcut; add the binding above yourself, or configure it in the overlay setting
 
 - Omarchy Quattro with its Quickshell-based shell.
 - System Python (`/usr/bin/python3`) and `python-pillow` for image thumbnails.
+- Optional preview tools: `neovim` for syntax highlighting, `poppler`
+  (`pdfinfo`/`pdftoppm`) for PDFs, `ffmpeg` (`ffprobe`/`ffplay`) for media,
+  `librsvg` (`rsvg-convert`) for SVG, and `libarchive` (`bsdtar`) for archives.
+  Missing decoders leave a preview-unavailable message; Files never installs them automatically.
 - `fd`, `fzf`, `gawk`, `wl-copy`, `wl-paste`, `timeout`, `head`, and `gio`, all of which ship with Omarchy.
 
 ## Using it
@@ -118,15 +142,50 @@ bindings are preserved, and backups are kept beside the configuration files.
 Hyprland is reloaded and checked; failed validation restores the previous files.
 Supported keys are Space, letters, digits, and F1 through F12 with modifiers.
 
-The right pane previews the selected file. Text is rendered as plain text,
-never HTML, and limited to 16 KiB. Supported raster images are reduced to a
-512-pixel thumbnail in a separate process: at most 8 MiB of input, 16 million
-pixels, 384 MiB of address space, two CPU seconds, and a three-second wall-clock
-timeout (plus a one-second forced-stop grace period). Only a bounded PNG reaches
-Qt. Previews remain in memory; no snippets or thumbnails are cached or sent over
-the network. Symbolic links, special files, and paths outside the search folder
-are not read for content previews. PDFs and other unsupported formats show file
-information. The pane hides on screens narrower than 900 logical pixels.
+The right pane previews the selected file using the same Omarchy menu font.
+
+| Type | Preview |
+|---|---|
+| Code and text | Up to 16 KiB, with Neovim syntax highlighting and the configured Neovim theme for recognized languages; UTF-8 and UTF-16 text supported |
+| PDFs | Rendered pages, with previous/next page controls |
+| Images | JPEG, PNG, WebP, GIF, TIFF, AVIF, ICO, JPEG 2000, PSD and other Pillow formats; HEIC/HEIF via FFmpeg when supported |
+| SVG | Rasterized preview, rejecting scripts, embedded documents and external resources |
+| Audio | Duration, seeking, and explicit playback of up to 30 seconds from the chosen position |
+| Video | Duration, a frame preview, seeking to another frame, and explicit audio playback when present; Enter opens the full video |
+| Documents | Text from DOCX, ODT/ODS/ODP, XLSX (first sheet), PPTX (first ten slides), and EPUB |
+| Archives | Bounded file listing for ZIP, TAR, 7z, RAR and other libarchive formats; nothing extracted |
+| Folders | Up to 200 directory entries |
+
+Text previews use the direct Python path, without starting an editor for plain text. Code is
+highlighted by a headless Neovim using its bundled syntax definitions, with a
+one-second deadline and a plain-text fallback. Colors and the code background come
+from the configured Omarchy Neovim theme (`~/.config/nvim/lua/plugins/theme.lua`)
+and its already installed theme package. Theme options are applied; the general
+Neovim init, plugin manager, modelines, swap and history remain disabled. No theme
+packages are downloaded. Ad hoc colorscheme changes inside an existing editor
+session are not reflected until saved in the theme configuration. The system
+font is preserved; only escaped text and generated color tags reach Qt's
+styled-text renderer. File contents cannot create links or embedded images.
+Selection changes cancel stale work. Text waits 40 ms before loading; heavier
+formats wait 120 ms to avoid decoding while you scroll quickly. Up to eight
+previews (4 MiB of serialized data) are cached in memory, revalidated using file
+identity, size, nanosecond timestamps and the theme configuration, and cleared when the pane closes.
+
+Decoders run outside the shell with a 768 MiB address-space limit and five CPU
+seconds. Individual preview commands have a three-second deadline and bounded
+output; the whole preview has an eight-second deadline. Playback first decodes a
+finite PCM excerpt, then sends that generated audio to a player, with a 40-second
+overall deadline. Playback never starts automatically and stops when the
+selection changes or the pane closes. Media inputs use descriptor-only protocols
+and fixed demuxers, preventing playlist URLs or referenced files from being opened.
+
+Image input is limited to 8 MiB and 16 million pixels, thumbnails to 512 pixels,
+PDFs to 64 MiB, Office/EPUB documents to 32 MiB, archives to 128 MiB, and media to
+2 GiB. No snippets, thumbnails or audio are written to disk or sent over the
+network. Symbolic links, special files, and paths outside the search folder do
+not get content previews. Unsupported, encrypted or over-limit files show file
+information or an unavailable message. The pane hides below 900 logical pixels
+of screen width.
 
 Files has no bar widget. If you installed version 1.1.0, remove its Files entry
 from the bar settings; the settings button now lives inside the overlay.
@@ -218,6 +277,7 @@ commands every action runs live in `FilesModel.js` as pure functions:
 ```bash
 node --test tests/
 tests/check-input               # Quickshell input/settings tests with a fake clipboard
+tests/check-previews            # PDF, highlighting, cancellation and silent audio UI tests
 /usr/bin/python3 tests/support.test.py
 ```
 

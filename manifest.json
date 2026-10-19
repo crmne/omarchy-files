@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "crmne.files",
   "name": "Files",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Carmine Paolino",
   "license": "MIT",
-  "description": "Find files and folders as you type, browse folders, preview text and images, and act on results. Open with Ctrl+Alt+Super+Space after configuring it in Files settings, or run omarchy-shell shell toggle crmne.files. The settings button inside the overlay configures search folders, exclusions, previews, and the shortcut. Applying a shortcut explicitly writes a dedicated Hyprland file and loads it from bindings.lua; installation does not change your bindings.",
+  "description": "Find files and folders as you type, with previews for code in your configured Neovim theme, PDF pages, images, documents, archives, audio and video frames. Browse folders and act on results. Open with Ctrl+Alt+Super+Space after configuring it in Files settings, or run omarchy-shell shell toggle crmne.files. The settings button inside the overlay configures search folders, exclusions, previews and the shortcut. Applying a shortcut explicitly writes a dedicated Hyprland file and loads it from bindings.lua; installation does not change your bindings.",
   "kinds": [
     "overlay"
   ],

@@ -40,23 +40,30 @@ ShellRoot {
   }
 
   Timer {
-    interval: 600
-    running: true
-    repeat: true
+    interval: 400; running: true; repeat: true
     property int phase: 0
+    property var scenes: [
+      {name: "code", query: "preview"},
+      {name: "pdf", query: "preview.pdf"},
+      {name: "audio", query: "preview.wav"},
+      {name: "settings", query: "preview"}
+    ]
     onTriggered: {
-      phase++
-      if (phase === 1) files.open(JSON.stringify({ root: shell.demoHome, query: "invoice" }))
-      // Waits for the index and the search to finish before grabbing.
-      if ((phase === 3 || phase === 5) && !shell.settled()) {
-        phase--
-        return
+      var scene = scenes[Math.floor(phase / 6)]
+      if (!scene) { files.close(); Qt.quit(); return }
+      if (phase % 6 === 0) {
+        files.cardWidth = 1000
+        files.cardHeight = 480
+        files.listHeight = files.cardHeight - files.contentMargin * 2 - files.headerHeight - files.contentSpacing * 2 - files.footerHeight
+        files.open(JSON.stringify({root: shell.demoHome, query: scene.query}))
       }
-      if (phase === 3) shell.save(shell.findCard(files), "search.png")
-      if (phase === 4) files.openActions(files.currentItem)
-      if (phase === 5) shell.save(shell.findCard(files), "actions.png")
-      if (phase === 6) files.close()
-      if (phase === 7) Qt.quit()
+      if (phase % 6 === 1 && !shell.settled()) return
+      if (phase % 6 === 2 && scene.name === "settings") {
+        files.preferences = {root: "/home/demo", excludes: ["go", "Android"], shortcut: "SUPER + CTRL + ALT + SPACE", preview: true}
+        files.flipSettings()
+      }
+      if (phase % 6 === 5) shell.save(shell.findCard(files), scene.name + ".png")
+      phase++
     }
   }
 }

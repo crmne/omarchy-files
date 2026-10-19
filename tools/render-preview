@@ -1,105 +1,54 @@
 #!/usr/bin/env bash
-# Renders preview.png, the marketplace card: the real overlay searching a
-# made-up home folder for "invoice", and its actions panel, captured by
-# tools/preview/shell.qml and composed by tools/render-preview-card.py.
-# Nothing under the real $HOME is listed, indexed or themed from. Needs a running Wayland
-# session, since the overlay is a layer-shell surface; it is on screen for a
-# few seconds and takes the keyboard while it is.
+# Capture the real overlay with synthetic files and an isolated Omarchy theme.
 set -euo pipefail
-
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 shell_dir=${OMARCHY_PATH:-/usr/share/omarchy}/shell
-work=$(mktemp -d "${TMPDIR:-/tmp}/files-preview.XXXXXX")
+work=$(mktemp -d /tmp/files-preview.XXXXXX)
 trap 'rm -rf -- "$work"' EXIT
-
-# ---- A made-up home folder, with recent changes on top.
-home="$work/home"
-mkdir -p "$home"
-files=(
-  "Documents/Invoices/2026/2026-03 Northwind Studio invoice.pdf"
-  "Documents/Invoices/2026/2026-02 Northwind Studio invoice.pdf"
-  "Documents/Invoices/2026/2026-01 Hosting invoice.pdf"
-  "Documents/Invoices/2025/2025-12 Northwind Studio invoice.pdf"
-  "Documents/Invoices/2025/2025-11 Domain renewal invoice.pdf"
-  "Documents/Invoices/invoice-template.odt"
-  "Documents/Resume 2026.pdf"
-  "Documents/Taxes/2025 tax return.pdf"
-  "Documents/Taxes/receipts.zip"
-  "Documents/Notes/meeting notes.md"
-  "Documents/Notes/reading list.md"
-  "Documents/Notes/ideas.txt"
-  "Downloads/invoice-acme-design-0412.pdf"
-  "Downloads/invoice-scan.jpg"
-  "Downloads/font-pack.tar.gz"
-  "Downloads/manual.pdf"
-  "Projects/weather-cli/README.md"
-  "Projects/weather-cli/Cargo.toml"
-  "Projects/weather-cli/src/main.rs"
-  "Projects/weather-cli/src/forecast.rs"
-  "Projects/recipe-box/README.md"
-  "Projects/recipe-box/Gemfile"
-  "Projects/recipe-box/app/models/recipe.rb"
-  "Projects/recipe-box/app/models/invoice.rb"
-  "Projects/recipe-box/docs/invoices.md"
-  "Pictures/Trips/Lisbon/tram.jpg"
-  "Pictures/Trips/Lisbon/sunset.jpg"
-  "Pictures/Wallpapers/dunes.png"
-  "Music/Morning Light.flac"
-  "Music/Late Train.mp3"
-  "Videos/Lisbon timelapse.mp4"
-)
-for f in "${files[@]}"; do
-  mkdir -p "$home/$(dirname -- "$f")"
-  printf 'placeholder\n' >"$home/$f"
-done
-n=0
-while IFS= read -r -d '' f; do
-  touch -h -d "-$((10 + n)) days" "$f"
-  n=$((n + 1))
-done < <(find "$home" -mindepth 1 -print0 | sort -z)
-n=0
-for f in "Documents/Invoices/2026/2026-03 Northwind Studio invoice.pdf" "Projects/weather-cli/src/forecast.rs" \
-  "Documents/Notes/meeting notes.md" "Downloads/invoice-acme-design-0412.pdf" "Pictures/Trips/Lisbon/tram.jpg" \
-  "Documents/Resume 2026.pdf" "Projects/recipe-box/app/models/invoice.rb" "Downloads/invoice-scan.jpg" \
-  "Music/Morning Light.flac" "Projects/weather-cli/README.md" \
-  "Documents/Invoices/2026/2026-02 Northwind Studio invoice.pdf" "Documents/Taxes/2025 tax return.pdf"; do
-  touch -d "-$((n * 37 + 5)) minutes" "$home/$f"
-  n=$((n + 1))
-done
-
-# ---- A private $HOME for the shell, in Omarchy's ristretto theme like the
-# other plugin previews, whatever theme this machine runs.
-user="$work/user"
-theme="$user/.local/state/omarchy/current/next-theme"
-mkdir -p "$theme" "$user/.config/fontconfig"
-cp "${OMARCHY_PATH:-/usr/share/omarchy}/themes/ristretto/colors.toml" "$theme/colors.toml"
-HOME="$user" omarchy-theme-set-templates >/dev/null
-cp -r "$theme" "$theme/../theme"
-cat >"$user/.config/fontconfig/fonts.conf" <<'XML'
-<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig>
-<match target="pattern"><test name="family"><string>monospace</string></test>
-<edit name="family" mode="assign" binding="strong"><string>JetBrainsMono Nerd Font</string></edit></match>
-</fontconfig>
-XML
-
-# ---- Capture the overlay with the shell's own Commons and Ui.
+files_demo="$work/demo"
+files_user="$work/user"
+mkdir -p "$files_demo/Projects" "$files_demo/Documents" "$files_demo/Music"
+FILES_DEMO="$files_demo" /usr/bin/python3 - <<'PY'
+from pathlib import Path
+from PIL import Image, ImageDraw
+import os,wave
+root=Path(os.environ['FILES_DEMO'])
+(root/'Projects/preview.py').write_text('from pathlib import Path\n\n# Find photographs in a folder.\ndef photographs(folder: Path):\n    limit = 12\n    names = sorted(folder.glob("*.jpg"))\n    return names[:limit]\n\nfor photo in photographs(Path("Pictures")):\n    print(f"Found {photo.name}")\n')
+(root/'Projects/preview-notes.md').write_text('# File previews\n\nCode, PDFs, images, documents and media.\n')
+(root/'Projects/preview-settings.json').write_text('{"preview": true, "font": "system"}\n')
+image=Image.new('RGB',(600,400),'#efb875');draw=ImageDraw.Draw(image)
+draw.ellipse((420,45,530,155),fill='#fff1ba')
+draw.polygon([(0,330),(200,150),(400,330)],fill='#596778')
+draw.polygon([(150,400),(400,210),(600,400)],fill='#34475c')
+image.save(root/'Documents/preview.pdf',save_all=True,append_images=[Image.new('RGB',(600,400),'#7fbcac')])
+image.save(root/'Documents/preview.jpg')
+with wave.open(str(root/'Music/preview.wav'),'wb') as f:
+    f.setnchannels(1);f.setsampwidth(2);f.setframerate(8000);f.writeframes(b'\0\0'*16000)
+for p in root.rglob('*'):
+    os.utime(p,(1792404000,1792404000))
+os.utime(root/'Projects/preview.py',(1792404060,1792404060))
+PY
+files_theme="$files_user/.local/state/omarchy/current/next-theme"
+mkdir -p "$files_theme" "$files_user/.config/nvim/lua/plugins" "$files_user/.local/share/nvim/lazy"
+cp "${OMARCHY_PATH:-/usr/share/omarchy}/themes/ristretto/colors.toml" "$files_theme/colors.toml"
+HOME="$files_user" XDG_CONFIG_HOME="$files_user/.config" omarchy-theme-set-templates >/dev/null
+cp -r "$files_theme" "$files_theme/../theme"
+cp "$files_theme/neovim.lua" "$files_user/.config/nvim/lua/plugins/theme.lua"
+# Theme code is already installed, never downloaded by this capture tool.
+files_aether="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/aether"
+[[ -d "$files_aether" ]] || { echo 'Install the Omarchy Aether Neovim theme before capturing.' >&2; exit 1; }
+ln -s "$files_aether" "$files_user/.local/share/nvim/lazy/aether"
 ln -s "$shell_dir/Commons" "$work/Commons"
 ln -s "$shell_dir/Ui" "$work/Ui"
 ln -s "$repo" "$work/plugin"
 cp "$repo/tools/preview/shell.qml" "$work/shell.qml"
 mkdir -p "$work/out" "$work/cache"
-
-# The index for the demo folder goes in the work folder, not ~/.cache.
-HOME="$user" XDG_CACHE_HOME="$work/cache" FILES_PREVIEW_OUT="$work/out" FILES_PREVIEW_HOME="$home" \
-  timeout 60s quickshell -p "$work" --no-color >"$work/log" 2>&1 || true
-
-if grep -E "TypeError|ReferenceError|SyntaxError|is not a function|is not defined" "$work/log"; then
-  echo "QML errors while rendering; see above." >&2
-  exit 1
-fi
-for name in search.png actions.png; do
-  [[ -s "$work/out/$name" ]] || { cat "$work/log" >&2; echo "missing $name" >&2; exit 1; }
+HOME="$files_user" XDG_CONFIG_HOME="$files_user/.config" XDG_DATA_HOME="$files_user/.local/share" XDG_CACHE_HOME="$work/cache" \
+ FILES_PREVIEW_OUT="$work/out" FILES_PREVIEW_HOME="$files_demo" \
+ timeout 45 quickshell -p "$work" --no-color >"$work/log" 2>&1 || { cat "$work/log"; exit 1; }
+if rg 'TypeError|ReferenceError|SyntaxError|Failed to load configuration' "$work/log"; then exit 1; fi
+for name in code pdf audio settings; do
+ [[ -s "$work/out/$name.png" ]] || { cat "$work/log"; exit 1; }
+ cp "$work/out/$name.png" "$repo/screenshots/preview-$name.png"
 done
-
-python3 "$repo/tools/render-preview-card.py" "$work/out"
+/usr/bin/python3 "$repo/tools/render-preview-card.py" "$work/out"
