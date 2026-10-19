@@ -45,7 +45,7 @@ Screenshots show the actual overlay searching a synthetic home folder, not real 
 omarchy plugin add https://github.com/crmne/omarchy-files.git --enable --yes
 ```
 
-Then summon it with:
+Add **Files** in the bar settings to open it with a click, or summon it with:
 
 ```bash
 omarchy-shell shell toggle crmne.files
@@ -57,21 +57,27 @@ Omarchy plugins cannot declare key bindings, so bind it yourself in
 `~/.config/hypr/bindings.lua`:
 
 ```lua
-o.bind("SUPER + CTRL + SLASH", "Find files", "omarchy-shell shell toggle crmne.files")
+o.bind("SUPER + CTRL + ALT + SPACE", "Find files", "omarchy-shell shell toggle crmne.files")
 ```
 
-`Super Ctrl /` sits next to Omarchy's own pickers on `Super Ctrl` and a letter,
-without taking `Super Ctrl F`, which is tiled fullscreen.
+`Ctrl Alt Super Space` keeps file search on Space alongside Omarchy's menus.
+Alt is Option on Mac keyboards. Installing the plugin does not install a
+shortcut; add the binding above yourself, or use the Files bar button.
 
 ## Requirements
 
 - Omarchy Quattro with its Quickshell-based shell.
-- `fd`, `fzf`, `gawk`, `wl-copy`, and `gio`, all of which ship with Omarchy.
+- `fd`, `fzf`, `gawk`, `wl-copy`, `wl-paste`, `timeout`, `head`, and `gio`, all of which ship with Omarchy.
 
 ## Using it
 
 Start typing. With nothing typed, the overlay lists the files you changed most
-recently.
+recently. A blinking caret shows where typing and pasted text will appear.
+Use `Ctrl V` or `Shift Insert` to paste into the search or either action filter.
+Clipboard reads happen only on paste, in a separate process limited to 4096
+bytes and two seconds (with a one-second forced-stop grace period). Line breaks
+become spaces, control characters are removed, and results arriving after you
+edit, navigate, or close the overlay are discarded.
 
 | Key | Results |
 |---|---|
@@ -166,11 +172,15 @@ Put or link this repository at `~/.config/omarchy/plugins/crmne.files` and run:
 omarchy-shell shell rescanPlugins
 ```
 
+After changing QML in an already loaded plugin, run `omarchy restart shell`
+to clear cached components. A plugin rescan alone can retain the old code.
+
 Rows, icons, the actions each item gets, shortcuts, breadcrumbs, and the
 commands every action runs live in `FilesModel.js` as pure functions:
 
 ```bash
 node --test tests/
+tests/check-input               # Quickshell input tests with a fake clipboard
 ```
 
 The helper is usable on its own:

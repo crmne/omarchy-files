@@ -366,9 +366,20 @@ function appsCommand(helper, path) {
   }
 }
 
+// Clipboard text becomes one search line, with controls and truncated Unicode removed.
+function pastedFilter(filter, value) {
+  var text = String(value || "").slice(0, 4096)
+    .replace(/\r\n?|\n|\t/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
+    .replace(/\ufffd+$/, "")
+  if (/[\ud800-\udbff]$/.test(text)) text = text.slice(0, -1)
+  return filter + text
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     ICONS: ICONS,
+    pastedFilter: pastedFilter,
     classify: classify,
     iconFor: iconFor,
     basename: basename,

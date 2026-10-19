@@ -224,3 +224,12 @@ test("the search and Open With calls keep what was typed off the command line", 
   assert.deepEqual(apps.command, ["/plugin/bin/crmne-files", "apps"])
   assert.deepEqual(apps.environment, { CRMNE_FILES_PATH: "/home/demo/Documents/taxes.pdf" })
 })
+
+
+test("pasted filters normalize lines, strip controls and bound clipboard text", () => {
+  assert.equal(Model.pastedFilter("old ", "one\r\ntwo\tthree\u0000\u001b"), "old one two three")
+  assert.equal(Model.pastedFilter("", "x".repeat(6000)).length, 4096)
+  assert.equal(Model.pastedFilter("", "partial\ufffd"), "partial")
+  assert.equal(Model.pastedFilter("", "x".repeat(4095) + "😀"), "x".repeat(4095))
+  assert.equal(Model.pastedFilter("", "$(touch /tmp/never)"), "$(touch /tmp/never)")
+})

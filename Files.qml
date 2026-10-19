@@ -3,6 +3,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "FilesModel.js" as Model
 
@@ -23,6 +24,12 @@ Item {
   readonly property int indexMaxAge: 60
 
   property bool opened: false
+  // Discard a delayed clipboard result after any navigation or edit.
+  property int inputRevision: 0
+  onViewChanged: inputRevision++
+  onQueryChanged: { inputRevision++; caretBlink.restart() }
+  onActionQueryChanged: { inputRevision++; caretBlink.restart() }
+  onScopeChanged: inputRevision++
 
   // "results" lists files, "actions" lists what can be done to one of them,
   // and "apps" lists the applications Open With offers.
@@ -54,18 +61,22 @@ Item {
 
   property bool trashConfirmOpen: false
   property var trashTarget: null
-  onOpenedChanged: if (!opened) { trashConfirmOpen = false; trashTarget = null }
+  onOpenedChanged: {
+    inputRevision++
+    if (!opened) { trashConfirmOpen = false; trashTarget = null }
+  }
+  onTrashConfirmOpenChanged: inputRevision++
 
   // Shares the [menu] surface tokens, so a theme that styles the menu styles
   // this overlay the same way.
-  property color background: Color.menu.background
-  property color foreground: Color.menu.text
-  property color border: Color.menu.border
+  property color background: Commons.Color.menu.background
+  property color foreground: Commons.Color.menu.text
+  property color border: Commons.Color.menu.border
   property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
-  property color scrim: Color.menu.scrim
-  property color selectedBackground: Color.menu.selectedBackground
-  property color selectedText: Color.menu.selectedText
-  property color selectedBorder: Color.menu.selectedBorder
+  property color scrim: Commons.Color.menu.scrim
+  property color selectedBackground: Commons.Color.menu.selectedBackground
+  property color selectedText: Commons.Color.menu.selectedText
+  property color selectedBorder: Commons.Color.menu.selectedBorder
   property var selectedBorderSpec: Border.surfaceSpec("menu", "selected-border", selectedBorder, 0)
   readonly property real rowReservedBorderLeft: Border.left(selectedBorderSpec)
   readonly property real rowReservedBorderRight: Border.right(selectedBorderSpec)
@@ -139,6 +150,8 @@ Item {
   function state() {
     return JSON.stringify({
       opened: root.opened,
+      inputFocused: keyCatcher.activeFocus,
+      caretVisible: inputCaret.visible,
       view: root.view,
       scope: root.scope,
       query: root.query,
@@ -452,11 +465,23 @@ Item {
       && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)
   }
 
+  function pasteFilter() {
+    if (pasteProc.running || !root.opened || root.trashConfirmOpen) return
+    pasteProc.revision = root.inputRevision
+    pasteProc.running = true
+  }
+
   function handleKey(event) {
     var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
     var shift = (event.modifiers & Qt.ShiftModifier) !== 0
     var alt = (event.modifiers & Qt.AltModifier) !== 0
     var filter = root.filterText
+
+    if ((event.key === Qt.Key_V && event.modifiers === Qt.ControlModifier)
+        || (event.key === Qt.Key_Insert && event.modifiers === Qt.ShiftModifier)) {
+      root.pasteFilter()
+      return true
+    }
 
     var target = root.currentItem
     if (root.view !== "apps") {
@@ -527,6 +552,33 @@ Item {
     }
 
     return false
+  }
+
+  // No Qt text input: clipboard reads happen only on an explicit paste.
+  // The timeout covers the entire pipeline, including a stalled provider.
+  Process {
+    id: pasteProc
+    objectName: "clipboardPaste"
+    property int revision: -1
+    command: ["timeout", "-k", "1", "2", "sh", "-c", "wl-paste --no-newline --type text 2>/dev/null | head -c 4096"]
+    stdout: StdioCollector { id: pasteOutput }
+    onExited: function(exitCode, exitStatus) {
+      if (exitCode !== 0 || exitStatus !== 0 || revision !== root.inputRevision
+          || !root.opened || root.trashConfirmOpen) return
+      var text = Model.pastedFilter(root.filterText, pasteOutput.text)
+      if (root.view === "results") root.setQuery(text)
+      else root.setActionQuery(text)
+    }
+  }
+
+  Timer {
+    id: caretBlink
+    property bool lit: true
+    interval: 530
+    repeat: true
+    running: root.opened && !root.trashConfirmOpen
+    onRunningChanged: lit = true
+    onTriggered: lit = !lit
   }
 
   ListModel { id: displayModel }
@@ -696,18 +748,40 @@ Item {
             elide: Text.ElideMiddle
           }
 
-          Text {
-            textFormat: Text.PlainText
+          Item {
             anchors.left: prefixText.visible ? prefixText.right : parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || Model.headerPlaceholder(root.view, root.scope, root.actionTarget ? root.actionTarget.name : "")
-            color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.heading
-            // Long breadcrumbs and queries keep their end in view.
-            elide: Text.ElideLeft
+            height: root.headerHeight
+            clip: true
+
+            Text {
+              id: filterLabel
+              anchors.verticalCenter: parent.verticalCenter
+              x: root.filterText ? Math.min(0, parent.width - implicitWidth - Style.space(3)) : 0
+              textFormat: Text.PlainText
+              text: root.filterText || Model.headerPlaceholder(root.view, root.scope, root.actionTarget ? root.actionTarget.name : "")
+              color: root.foreground
+              opacity: root.filterText ? 1 : 0.58
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.heading
+            }
+
+            Rectangle {
+              id: inputCaret
+              objectName: "inputCaret"
+              x: root.filterText ? filterLabel.x + filterLabel.implicitWidth + Style.space(1) : 0
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.max(1, Style.space(1))
+              height: Style.font.heading * 1.2
+              color: root.foreground
+              visible: keyCatcher.activeFocus && !root.trashConfirmOpen && caretBlink.lit
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.IBeamCursor
+              onClicked: keyCatcher.forceActiveFocus()
+            }
           }
         }
 

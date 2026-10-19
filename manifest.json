@@ -2,15 +2,26 @@
   "schemaVersion": 1,
   "id": "crmne.files",
   "name": "Files",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Carmine Paolino",
   "license": "MIT",
-  "description": "Find any file or folder in your home as you type, browse into folders, and act on what you find: open it, open it with another app, show it in Files, copy it, share it, or move it to the Trash.",
+  "description": "Find any file or folder in your home as you type, browse into folders, and act on what you find: open it, open it with another app, show it in Files, copy it, share it, or move it to the Trash. Open it from the Files bar button (add it in bar settings), or set Ctrl+Alt+Super+Space in ~/.config/hypr/bindings.lua with o.bind(\"SUPER + CTRL + ALT + SPACE\", \"Find files\", \"omarchy-shell shell toggle crmne.files\"). Keyboard shortcuts require this manual setup.",
   "kinds": [
-    "overlay"
+    "overlay",
+    "bar-widget"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "overlay": "Files.qml"
+    "overlay": "Files.qml",
+    "barWidget": "FilesButton.qml"
+  },
+  "barWidget": {
+    "displayName": "Files",
+    "description": "Open file search without a keyboard shortcut.",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": {},
+    "schema": []
   }
 }
