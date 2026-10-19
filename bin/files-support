@@ -131,45 +131,59 @@ def save(data):
     atomic_write(settings_path(), json.dumps(config, indent=2)+'\n')
     return config
 
-def preview(path, root):
-    resource.setrlimit(resource.RLIMIT_AS, (384*1024*1024, 384*1024*1024))
-    resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
+def preview(path, root, playback=False):
+    import preview_formats as formats
+    import signal
+    def cancelled(signum, frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, cancelled)
+    resource.setrlimit(resource.RLIMIT_AS, (768*1024*1024, 768*1024*1024))
+    resource.setrlimit(resource.RLIMIT_CPU, (5, 5))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     p = Path(path)
     if not p.is_absolute() or not p.resolve().is_relative_to(Path(root).resolve()):
         return dict(kind='metadata', message='Preview outside the search folder is disabled.')
     info = p.lstat()
     result = dict(kind='metadata', name=p.name, size=info.st_size, modified=time.strftime('%Y-%m-%d %H:%M', time.localtime(info.st_mtime)))
+    if stat.S_ISDIR(info.st_mode):
+        if playback: raise ValueError('Not an audio file.')
+        with os.scandir(p) as entries:
+            names=[]
+            for index, entry in enumerate(entries):
+                if index>=200:break
+                if not entry.name.startswith('.'):
+                    names.append(entry.name + ('/' if entry.is_dir(follow_symlinks=False) else ''))
+        result.update(kind='text',text=formats.clean('\n'.join(sorted(names))),message='Folder contents (up to 200 entries).')
+        return result
     if not stat.S_ISREG(info.st_mode):
-        result['message'] = 'Folder' if stat.S_ISDIR(info.st_mode) else 'Symbolic link or special file: content preview disabled.'
+        result['message'] = 'Symbolic link or special file: content preview disabled.'
         return result
     fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     with os.fdopen(fd, 'rb') as f:
         actual = os.fstat(f.fileno())
         if not stat.S_ISREG(actual.st_mode): return result
+        if not Path(os.readlink(f'/proc/self/fd/{f.fileno()}')).is_relative_to(Path(root).resolve()):
+            return dict(kind='metadata',message='Preview outside the search folder is disabled.')
         result['size'] = actual.st_size
+        fingerprint = f'{actual.st_dev}:{actual.st_ino}:{actual.st_size}:{actual.st_mtime_ns}:{actual.st_ctime_ns}'
+        theme = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home()/'.config')))/'nvim/lua/plugins/theme.lua'
+        try:
+            theme_stat = theme.stat()
+            fingerprint += f':{theme_stat.st_ino}:{theme_stat.st_size}:{theme_stat.st_mtime_ns}:{theme_stat.st_ctime_ns}'
+        except OSError:
+            fingerprint += ':no-theme'
+        result['fingerprint'] = fingerprint
+        if not playback and os.environ.get('CRMNE_FILES_FINGERPRINT') == fingerprint:
+            result['unchanged'] = True
+            return result
         ext = p.suffix.lower()
-        if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'):
-            if actual.st_size > 8*1024*1024:
-                result['message'] = 'Image exceeds the 8 MiB preview limit.'
-                return result
-            from PIL import Image, ImageOps
-            Image.MAX_IMAGE_PIXELS = 16_000_000
-            import warnings
-            warnings.simplefilter('error', Image.DecompressionBombWarning)
-            image = Image.open(io.BytesIO(f.read(8*1024*1024+1)))
-            if image.width*image.height > 16_000_000: return result
-            image.thumbnail((512,512))
-            image = ImageOps.exif_transpose(image).convert('RGB')
-            out = io.BytesIO(); image.save(out, format='PNG')
-            result.update(kind='image', image='data:image/png;base64,'+base64.b64encode(out.getvalue()).decode())
-        elif ext in ('.txt','.md','.log','.csv','.json','.yaml','.yml','.toml','.ini','.conf','.lua','.py','.rb','.js','.ts','.qml','.css','.html','.sh','.rs','.c','.h','.cpp') or p.name in ('README','LICENSE','Makefile','Gemfile'):
-            data = f.read(16384)
-            if b'\0' not in data:
-                text = data.decode('utf-8', errors='replace')
-                text = ''.join(c for c in text if c in '\n\t' or (ord(c) >= 32 and not 127 <= ord(c) <= 159))
-                result.update(kind='text', text=text, truncated=actual.st_size > len(data))
-        else: result['message'] = 'No content preview for this format.'
+        position=float(os.environ.get('CRMNE_FILES_POSITION','0'))
+        if not 0<=position<=8640000:raise ValueError('Invalid media position.')
+        if playback:
+            if ext not in formats.MEDIA or actual.st_size>2*1024*1024*1024:raise ValueError('Unsupported audio preview.')
+            return formats.play(f,ext,position)
+        page=max(1,min(int(os.environ.get('CRMNE_FILES_PAGE','1')),100000))
+        result.update(formats.decode(f,ext,actual.st_size,page,position,p.name))
     return result
 
 if __name__ == '__main__':
@@ -177,7 +191,7 @@ if __name__ == '__main__':
         action = sys.argv[1]
         if action == 'load': result = load()
         elif action == 'save': result = save(json.loads(sys.stdin.read(16385)))
-        elif action == 'preview': result = preview(os.environ['CRMNE_FILES_PATH'], os.environ['CRMNE_FILES_ROOT'])
+        elif action in ('preview', 'play'): result = preview(os.environ['CRMNE_FILES_PATH'], os.environ['CRMNE_FILES_ROOT'], action == 'play')
         else: raise ValueError('Unknown action')
         print(json.dumps(dict(ok=True, result=result)))
     except Exception as error:

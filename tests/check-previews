@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+files_repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+files_work=$(mktemp -d /tmp/files-previews.XXXXXX)
+trap 'rm -rf -- "$files_work"' EXIT
+ln -s /usr/share/omarchy/shell/Commons "$files_work/Commons"
+ln -s /usr/share/omarchy/shell/Ui "$files_work/Ui"
+ln -s "$files_repo" "$files_work/plugin"
+cp "$files_repo/tests/previews.qml" "$files_work/shell.qml"
+mkdir -p "$files_work/home"
+FILES_TEST_HOME="$files_work/home" /usr/bin/python3 - <<'PY'
+from PIL import Image
+from pathlib import Path
+import os,wave
+root=Path(os.environ['FILES_TEST_HOME'])
+Image.new('RGB',(200,200),'red').save(root/'pages.pdf',save_all=True,append_images=[Image.new('RGB',(200,200),'blue')])
+with wave.open(str(root/'tone.wav'),'wb') as f:
+    f.setnchannels(1);f.setsampwidth(2);f.setframerate(8000);f.writeframes(b'\0\0'*32000)
+(root/'code.py').write_text('def hello():\n    return "<img src=anything>"\n')
+PY
+SDL_AUDIODRIVER=dummy FILES_TEST_SOURCE="$files_repo" FILES_TEST_HOME="$files_work/home" \
+  timeout 35 quickshell -p "$files_work" --no-color > "$files_work/output.log" 2>&1 || { cat "$files_work/output.log"; exit 1; }
+cat "$files_work/output.log"
+rg -q 'FILES PREVIEW RESULTS [0-9]+ passed 0 failed' "$files_work/output.log"
+! rg -q 'TypeError|ReferenceError|Failed to load configuration' "$files_work/output.log"
