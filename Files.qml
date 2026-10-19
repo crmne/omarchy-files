@@ -23,6 +23,38 @@ Item {
   // Rebuild the index on open once it is older than this many seconds.
   readonly property int indexMaxAge: 60
 
+  readonly property string supportHelper: decodeURIComponent(String(Qt.resolvedUrl("bin/files-support")).replace(/^file:\/\//, ""))
+  property var preferences: ({root: Quickshell.env("HOME"), excludes: ["go", "Android"], shortcut: "SUPER + CTRL + ALT + SPACE", preview: true})
+  property bool settingsVisible: false
+  property bool demoRoot: false
+  readonly property bool showPreview: preferences.preview && !settingsVisible && panel.width >= Style.space(900)
+  function flipSettings() {
+    if (flip.running) return
+    flip.start()
+  }
+  function applyPreferences(value) {
+    var searchChanged = preferences.root !== value.root || JSON.stringify(preferences.excludes) !== JSON.stringify(value.excludes)
+    preferences = value
+    if (searchChanged && opened && !demoRoot) {
+      home = value.root
+      scope = ""
+      scopeStack = []
+      resultRows = []
+      if (indexProc.running) indexProc.running = false
+      runSearch()
+      refreshIndex()
+    }
+  }
+  Process {
+    id: preferencesReader
+    command: [root.supportHelper, "load"]
+    running: true
+    stdout: StdioCollector { id: preferencesOutput }
+    onExited: {
+      try { var reply = JSON.parse(preferencesOutput.text); if (reply.ok) root.applyPreferences(reply.result) } catch (e) {}
+    }
+  }
+
   property bool opened: false
   // Discard a delayed clipboard result after any navigation or edit.
   property int inputRevision: 0
@@ -93,7 +125,7 @@ Item {
   // Seven result rows and the top of an eighth, so the fold reads as more
   // below. The card keeps this height while results change under it.
   property int listHeight: detailRowHeight * 7 + rowSpacing * 7 + rowPeek
-  property int cardWidth: Math.min(Style.space(620), panel.width - Style.gapsOut * 2)
+  property int cardWidth: Math.min(Style.space(root.showPreview ? 1000 : 620), panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(contentMargin * 2 + headerHeight + contentSpacing + listHeight + contentSpacing + footerHeight,
     panel.height - Style.gapsOut * 2)
 
@@ -113,7 +145,9 @@ Item {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
 
-    root.home = Model.rootFrom(payload, Quickshell.env("HOME"))
+    root.demoRoot = !!payload.root
+    root.settingsVisible = false
+    root.home = Model.rootFrom(payload, root.preferences.root)
     root.view = "results"
     root.scopeStack = []
     root.scope = String(payload.scope || "").replace(/^\/+|\/+$/g, "")
@@ -150,6 +184,7 @@ Item {
   function state() {
     return JSON.stringify({
       opened: root.opened,
+      settingsVisible: root.settingsVisible,
       inputFocused: keyCatcher.activeFocus,
       caretVisible: inputCaret.visible,
       view: root.view,
@@ -176,6 +211,7 @@ Item {
 
   function refreshIndex() {
     if (indexProc.running) return
+    indexProc.environment = {CRMNE_FILES_EXCLUDES: root.preferences.excludes.join("\n")}
     indexProc.command = [root.helper, "--root", root.home, "index", String(root.indexMaxAge)]
     indexProc.running = true
   }
@@ -193,6 +229,7 @@ Item {
   function runSearch() {
     root.searchSerial += 1
     root.wantedSearch = Model.searchCommand(root.helper, root.home, root.query, root.scope)
+    root.wantedSearch.environment.CRMNE_FILES_EXCLUDES = root.preferences.excludes.join("\n")
     // A search still running belongs to an older query: stop it, and its exit
     // starts this one.
     if (searchProc.running) searchProc.running = false
@@ -682,10 +719,11 @@ Item {
         id: keyCatcher
         anchors.fill: parent
         z: root.trashConfirmOpen ? 20 : 0
-        focus: true
+        focus: !root.settingsVisible
 
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
+          if (root.settingsVisible) { event.accepted = false; return }
           if (root.trashConfirmOpen) {
             if (trashConfirm.handleKey(event)) event.accepted = true
             return
@@ -713,10 +751,54 @@ Item {
         }
       }
 
+      transform: Rotation { id: cardRotation; origin.x: card.width / 2; origin.y: card.height / 2; axis { x: 0; y: 1; z: 0 } }
+      SequentialAnimation {
+        id: flip
+        NumberAnimation { target: cardRotation; property: "angle"; to: 90; duration: 100 }
+        ScriptAction { script: {
+          root.settingsVisible = !root.settingsVisible
+          if (root.settingsVisible) settingsView.reset()
+          else keyCatcher.forceActiveFocus()
+        } }
+        PropertyAction { target: cardRotation; property: "angle"; value: -90 }
+        NumberAnimation { target: cardRotation; property: "angle"; to: 0; duration: 100 }
+      }
+      SettingsView {
+        id: settingsView
+        fontFamily: root.fontFamily
+        objectName: "filesSettings"
+        visible: root.settingsVisible
+        anchors.fill: parent
+        anchors.margins: root.contentMargin
+        preferences: root.preferences
+        helper: root.supportHelper
+        onBack: root.flipSettings()
+        onSaved: function(value) { root.applyPreferences(value) }
+        onRebuild: {
+          if (indexProc.running) indexProc.running = false
+          indexProc.environment = {CRMNE_FILES_EXCLUDES: root.preferences.excludes.join("\n")}
+          indexProc.command = [root.helper, "--root", root.home, "index", "0"]
+          indexProc.running = true
+        }
+      }
+      Preview {
+        fontFamily: root.fontFamily
+        visible: root.showPreview
+        active: root.opened && root.showPreview && !root.trashConfirmOpen
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.margins: root.contentMargin
+        width: Style.space(330)
+        helper: root.supportHelper
+        path: root.currentItem ? root.currentItem.path : ""
+        searchRoot: root.home
+      }
       Column {
+        visible: !root.settingsVisible
         anchors.fill: parent
         anchors.topMargin: card.contentTopInset
-        anchors.rightMargin: card.contentRightInset
+        anchors.rightMargin: card.contentRightInset + (root.showPreview ? Style.space(350) : 0)
         anchors.bottomMargin: card.contentBottomInset
         anchors.leftMargin: card.contentLeftInset
         spacing: root.contentSpacing
@@ -725,6 +807,15 @@ Item {
           id: header
           width: parent.width
           height: root.headerHeight
+
+          Button {
+            id: settingsButton
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: "󰒓"
+            tooltipText: "Files settings"
+            onClicked: root.flipSettings()
+          }
 
           readonly property string prefix: {
             if (!root.filterText) return ""
@@ -750,7 +841,8 @@ Item {
 
           Item {
             anchors.left: prefixText.visible ? prefixText.right : parent.left
-            anchors.right: parent.right
+            anchors.right: settingsButton.left
+            anchors.rightMargin: Style.spacing.sm
             anchors.verticalCenter: parent.verticalCenter
             height: root.headerHeight
             clip: true

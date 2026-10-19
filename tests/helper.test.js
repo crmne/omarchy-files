@@ -95,3 +95,22 @@ test("a query matches as it would on fzf's command line, whatever its quotes and
     fs.rmSync(box.dir, { recursive: true, force: true })
   }
 })
+
+test("exclusions apply to both indexes and browsing, and cached paths stay private", () => {
+  const box = sandbox()
+  try {
+    const filtered = { ...box.env, CRMNE_FILES_EXCLUDES: "Secret" }
+    execFileSync(HELPER, ["--root", box.root, "index"], {env: filtered})
+    const rows = run(HELPER, ["--root", box.root, "search"], {env: filtered})
+    assert.ok(rows.every(row => !row.startsWith("Secret")))
+    const listed = run(HELPER, ["--root", box.root, "list"], {env: filtered})
+    assert.ok(!listed.includes("Secret/"))
+    const unfiltered = {...box.env, CRMNE_FILES_EXCLUDES: ""}
+    assert.equal(spawnSync(HELPER, ["--root", box.root, "search"], {env: unfiltered}).status, 3)
+    execFileSync(HELPER, ["--root", box.root, "index"], {env: unfiltered})
+    assert.ok(run(HELPER, ["--root", box.root, "search"], {env: unfiltered}).some(row => row.startsWith("Secret/")))
+    const cache = path.join(box.env.XDG_CACHE_HOME, "crmne-files")
+    assert.equal(fs.statSync(cache).mode & 0o777, 0o700)
+    for (const name of fs.readdirSync(cache)) assert.equal(fs.statSync(path.join(cache,name)).mode & 0o077, 0)
+  } finally { fs.rmSync(box.dir, {recursive:true, force:true}) }
+})

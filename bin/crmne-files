@@ -19,10 +19,15 @@
 # The query is never part of a shell string.
 
 set -uo pipefail
+umask 077
 
 # Folders skipped by name anywhere under $HOME, on top of hidden files and
 # everything .gitignore already excludes. Edit to taste.
 EXCLUDES=(go Android)
+if [[ ${CRMNE_FILES_EXCLUDES+x} ]]; then
+  EXCLUDES=()
+  while IFS= read -r name; do [[ -z $name ]] || EXCLUDES+=("$name"); done <<<"$CRMNE_FILES_EXCLUDES"
+fi
 
 # Results returned for one search, and children shown for one folder.
 LIMIT=200
@@ -41,8 +46,14 @@ cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/crmne-files"
 index="$cache_dir/index"
 [[ $root == "$HOME" ]] || index="$cache_dir/index-$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
 
+# Different exclusion settings must never reuse an incompatible index.
+if [[ ${CRMNE_FILES_EXCLUDES+x} ]]; then
+  index="$index-excludes-$(printf '%s' "$CRMNE_FILES_EXCLUDES" | sha256sum | cut -c1-16)"
+fi
+
 build_index() {
   mkdir -p "$cache_dir" || return 1
+  chmod 700 "$cache_dir" || return 1
 
   # One build at a time: a second caller waits for the first and then finds a
   # fresh index instead of starting its own.
@@ -123,7 +134,15 @@ list() {
   # Hidden entries stay out, as they do in the index. Listing . from inside
   # the folder keeps its name off find's command line.
   cd "$dir" || exit 4
-  find . -mindepth 1 -maxdepth 1 ! -name '.*' ! -name $'*\n*' \( -type d -printf '0\t%f/\n' -o -printf '1\t%f\n' \) 2>/dev/null |
+  local excludes=() name
+  for name in "${EXCLUDES[@]}"; do excludes+=(--exclude "$name"); done
+  fd --max-depth 1 --type d --type f "${excludes[@]}" --print0 . |
+    while IFS= read -r -d '' name; do
+      name=${name#./}
+      [[ $name == *$'\n'* ]] && continue
+      name=${name%/}
+      if [[ -d $name ]]; then printf '0\t%s/\n' "$name"; else printf '1\t%s\n' "$name"; fi
+    done |
     sort -t $'\t' -k1,1n -k2,2f |
     head -n "$LIST_LIMIT" |
     gawk '{ sub(/^[01]\t/, ""); print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'

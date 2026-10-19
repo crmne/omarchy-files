@@ -5,7 +5,6 @@ import "plugin" as Plugin
 
 ShellRoot {
   Plugin.Files { id: files }
-  Plugin.FilesButton { id: button; visible: false }
   TestCase {
     name: "FilesInput"
     when: true
@@ -17,7 +16,7 @@ ShellRoot {
       files.open(JSON.stringify({root: Quickshell.env("FILES_TEST_HOME")}))
       wait(100)
     }
-    function cleanup() { files.close(); wait(100) }
+    function cleanup() { console.log("TEST", qtest_results.functionName, qtest_results.failed ? "FAILED" : "PASSED"); files.close(); wait(100) }
     function paste(key, modifiers) {
       verify(files.handleKey({key: key, modifiers: modifiers, text: ""}))
     }
@@ -65,6 +64,26 @@ ShellRoot {
       tryVerify(function() { return !JSON.parse(files.state()).caretVisible }, 1000)
       files.setQuery("typed")
       tryVerify(function() { return JSON.parse(files.state()).caretVisible }, 1000)
+    }
+    function test_settings_flip_preserves_search_and_saves() {
+      files.setQuery("notes")
+      files.flipSettings()
+      tryCompare(files, "settingsVisible", true, 1000)
+      var settings = findChild(files, "filesSettings")
+      verify(settings !== null)
+      var folder = findChild(settings, "searchLocation")
+      folder.text = Quickshell.env("FILES_TEST_HOME")
+      findChild(settings, "excludedFolders").text = "ignored, build"
+      settings.previewEnabled = false
+      settings.save()
+      tryCompare(settings, "saving", false, 4000)
+      tryCompare(settings, "message", "Settings saved.", 4000)
+      compare(files.preferences.excludes.join(","), "ignored,build")
+      wait(250)
+      files.flipSettings()
+      tryCompare(files, "settingsVisible", false, 1000)
+      compare(files.query, "notes")
+      tryVerify(function() { return JSON.parse(files.state()).inputFocused }, 1000)
     }
     function test_navigation_still_works() {
       files.setQuery("hello world")

@@ -1,0 +1,185 @@
+#!/usr/bin/python3
+"""Local settings, explicit Hyprland edits, and bounded in-memory previews.
+All user input arrives on stdin or in the environment, never shell strings.
+"""
+import base64
+import io
+import json
+import os
+from pathlib import Path
+import re
+import resource
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+DEFAULT_SHORTCUT = 'SUPER + CTRL + ALT + SPACE'
+COMMAND = 'omarchy-shell shell toggle crmne.files'
+INCLUDE = 'dofile(os.getenv("HOME") .. "/.config/hypr/crmne-files.lua")'
+
+def settings_path():
+    return Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home()/'.config'))) / 'crmne-files/settings.json'
+
+def defaults():
+    return dict(root=str(Path.home()), excludes=['go', 'Android'], shortcut=DEFAULT_SHORTCUT, preview=True)
+
+def load():
+    p = settings_path()
+    if not p.exists():
+        return defaults()
+    with p.open() as f:
+        return validate(json.loads(f.read(16385)))
+
+def shortcut(value):
+    parts = [p.strip().upper() for p in value.split('+')]
+    if not 2 <= len(parts) <= 5 or len(set(parts)) != len(parts):
+        raise ValueError('Use modifiers and one key, for example SUPER + CTRL + ALT + SPACE.')
+    if any(p not in ('SUPER', 'CTRL', 'ALT', 'SHIFT') for p in parts[:-1]):
+        raise ValueError('Modifiers must be SUPER, CTRL, ALT, or SHIFT.')
+    if not re.fullmatch(r'(SPACE|[A-Z0-9]|F(?:[1-9]|1[0-2]))', parts[-1]):
+        raise ValueError('Use Space, a letter, a digit, or F1 to F12.')
+    return ' + '.join([p for p in ['SUPER', 'CTRL', 'ALT', 'SHIFT'] if p in parts[:-1]] + [parts[-1]])
+
+def validate(data):
+    root = str(Path(data.get('root', str(Path.home()))).expanduser())
+    if not Path(root).is_absolute() or not Path(root).is_dir() or '\n' in root:
+        raise ValueError('Search location must be an existing absolute folder.')
+    excludes = data.get('excludes', ['go', 'Android'])
+    if not isinstance(excludes, list) or len(excludes) > 64:
+        raise ValueError('Use at most 64 excluded folder names or patterns.')
+    if any(not isinstance(x, str) or not x or len(x) > 256 or any(ord(c) < 32 for c in x) for x in excludes):
+        raise ValueError('Each exclusion must be a nonempty single-line name or pattern.')
+    return dict(root=root, excludes=excludes, shortcut=shortcut(data.get('shortcut', DEFAULT_SHORTCUT)), preview=bool(data.get('preview', True)))
+
+def atomic_write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.is_symlink():
+        raise ValueError('Refusing to replace a symbolic-link configuration file: ' + str(path))
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix='.'+path.name)
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(text)
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name): os.unlink(name)
+
+def hypr(*args):
+    result = subprocess.run(['hyprctl', *args], capture_output=True, text=True, timeout=5)
+    if result.returncode:
+        raise ValueError('Hyprland could not validate the shortcut.')
+    return result.stdout.strip()
+
+def apply_shortcut(value):
+    main = Path.home()/'.config/hypr/bindings.lua'
+    dedicated = main.with_name('crmne-files.lua')
+    if not main.is_file(): raise ValueError('This setup requires ~/.config/hypr/bindings.lua.')
+    if hypr('configerrors'): raise ValueError('Fix the existing Hyprland configuration errors before applying a shortcut.')
+    old_main = main.read_text()
+    old_dedicated = dedicated.read_text() if dedicated.exists() else None
+    # Only migrate the exact Files command, preserving hardware Search bindings.
+    pattern = r'^o\.bind\("([A-Z0-9 +]+)", "Find files", "omarchy-shell shell toggle crmne\.files"\)\s*$'
+    owned = []
+    migrated_lines = set()
+    for line in old_main.splitlines():
+        match = re.fullmatch(pattern, line)
+        if match:
+            try:
+                owned.append(shortcut(match[1]))
+                migrated_lines.add(line)
+            except ValueError: pass
+    if old_dedicated is not None:
+        if not old_dedicated.startswith('-- Managed by Files.\n'):
+            raise ValueError('The dedicated shortcut file exists and is not managed by Files.')
+        match = re.search(r'o\.bind\("([A-Z0-9 +]+)"', old_dedicated)
+        if match: owned.append(shortcut(match[1]))
+    bits = {'SHIFT': 1, 'CTRL': 4, 'ALT': 8, 'SUPER': 64}
+    parts = value.split(' + ')
+    mask = sum(bits[x] for x in parts[:-1])
+    for binding in json.loads(hypr('-j', 'binds')):
+        if binding.get('modmask') == mask and str(binding.get('key', '')).upper() == parts[-1]:
+            if value not in owned or binding.get('description') != 'Find files':
+                raise ValueError('Shortcut is already assigned to ' + (binding.get('description') or 'another action') + '.')
+    new_lines = [line for line in old_main.splitlines() if line not in migrated_lines]
+    if INCLUDE not in new_lines: new_lines += ['', '-- Files opening shortcut (managed from Files settings).', INCLUDE]
+    generated = '-- Managed by Files.\n'
+    generated += f'hl.unbind("{value}")\no.bind("{value}", "Find files", "{COMMAND}")\n'
+    backups = [(main, old_main), (dedicated, old_dedicated)]
+    for p, text in backups:
+        if p.is_symlink(): raise ValueError('Refusing to replace a symbolic-link configuration file.')
+        if text is not None: atomic_write(p.with_name(p.name + '.files-backup-' + str(time.time_ns())), text)
+    try:
+        atomic_write(dedicated, generated)
+        atomic_write(main, '\n'.join(new_lines) + '\n')
+        hypr('reload')
+        errors = hypr('configerrors')
+        if errors: raise ValueError('Hyprland rejected the change; previous files restored.')
+    except Exception:
+        for p, text in backups:
+            if text is None: p.unlink(missing_ok=True)
+            else: atomic_write(p, text)
+        hypr('reload')
+        raise
+
+def save(data):
+    config = validate(data)
+    if settings_path().is_symlink(): raise ValueError("Refusing to replace a symbolic-link settings file.")
+    # Save is explicit. Search-only changes do not edit Hyprland.
+    if data.get('applyShortcut', False): apply_shortcut(config['shortcut'])
+    else: config['shortcut'] = load()['shortcut']
+    atomic_write(settings_path(), json.dumps(config, indent=2)+'\n')
+    return config
+
+def preview(path, root):
+    resource.setrlimit(resource.RLIMIT_AS, (384*1024*1024, 384*1024*1024))
+    resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    p = Path(path)
+    if not p.is_absolute() or not p.resolve().is_relative_to(Path(root).resolve()):
+        return dict(kind='metadata', message='Preview outside the search folder is disabled.')
+    info = p.lstat()
+    result = dict(kind='metadata', name=p.name, size=info.st_size, modified=time.strftime('%Y-%m-%d %H:%M', time.localtime(info.st_mtime)))
+    if not stat.S_ISREG(info.st_mode):
+        result['message'] = 'Folder' if stat.S_ISDIR(info.st_mode) else 'Symbolic link or special file: content preview disabled.'
+        return result
+    fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as f:
+        actual = os.fstat(f.fileno())
+        if not stat.S_ISREG(actual.st_mode): return result
+        result['size'] = actual.st_size
+        ext = p.suffix.lower()
+        if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'):
+            if actual.st_size > 8*1024*1024:
+                result['message'] = 'Image exceeds the 8 MiB preview limit.'
+                return result
+            from PIL import Image, ImageOps
+            Image.MAX_IMAGE_PIXELS = 16_000_000
+            import warnings
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            image = Image.open(io.BytesIO(f.read(8*1024*1024+1)))
+            if image.width*image.height > 16_000_000: return result
+            image.thumbnail((512,512))
+            image = ImageOps.exif_transpose(image).convert('RGB')
+            out = io.BytesIO(); image.save(out, format='PNG')
+            result.update(kind='image', image='data:image/png;base64,'+base64.b64encode(out.getvalue()).decode())
+        elif ext in ('.txt','.md','.log','.csv','.json','.yaml','.yml','.toml','.ini','.conf','.lua','.py','.rb','.js','.ts','.qml','.css','.html','.sh','.rs','.c','.h','.cpp') or p.name in ('README','LICENSE','Makefile','Gemfile'):
+            data = f.read(16384)
+            if b'\0' not in data:
+                text = data.decode('utf-8', errors='replace')
+                text = ''.join(c for c in text if c in '\n\t' or (ord(c) >= 32 and not 127 <= ord(c) <= 159))
+                result.update(kind='text', text=text, truncated=actual.st_size > len(data))
+        else: result['message'] = 'No content preview for this format.'
+    return result
+
+if __name__ == '__main__':
+    try:
+        action = sys.argv[1]
+        if action == 'load': result = load()
+        elif action == 'save': result = save(json.loads(sys.stdin.read(16385)))
+        elif action == 'preview': result = preview(os.environ['CRMNE_FILES_PATH'], os.environ['CRMNE_FILES_ROOT'])
+        else: raise ValueError('Unknown action')
+        print(json.dumps(dict(ok=True, result=result)))
+    except Exception as error:
+        print(json.dumps(dict(ok=False, error=str(error)[:300])))
+        sys.exit(1)

@@ -45,7 +45,7 @@ Screenshots show the actual overlay searching a synthetic home folder, not real 
 omarchy plugin add https://github.com/crmne/omarchy-files.git --enable --yes
 ```
 
-Add **Files** in the bar settings to open it with a click, or summon it with:
+Open the overlay with:
 
 ```bash
 omarchy-shell shell toggle crmne.files
@@ -62,11 +62,12 @@ o.bind("SUPER + CTRL + ALT + SPACE", "Find files", "omarchy-shell shell toggle c
 
 `Ctrl Alt Super Space` keeps file search on Space alongside Omarchy's menus.
 Alt is Option on Mac keyboards. Installing the plugin does not install a
-shortcut; add the binding above yourself, or use the Files bar button.
+shortcut; add the binding above yourself, or configure it in the overlay settings.
 
 ## Requirements
 
 - Omarchy Quattro with its Quickshell-based shell.
+- System Python (`/usr/bin/python3`) and `python-pillow` for image thumbnails.
 - `fd`, `fzf`, `gawk`, `wl-copy`, `wl-paste`, `timeout`, `head`, and `gio`, all of which ship with Omarchy.
 
 ## Using it
@@ -99,6 +100,40 @@ going back restores the search and selection you came from.
 | `→` | open the Open With list, where `↵` launches the app |
 | `Esc` | clear the filter, then go back |
 | `⇧ ⇥`, `Ctrl K`, or `←` or `Backspace` on an empty filter | back to the results, search and selection intact |
+
+## Settings and previews
+
+Click the settings icon inside the overlay to flip to its settings view. Back
+returns to the same search and selection. Settings include the search folder,
+comma-separated exclusion patterns, opening shortcut, and a preview toggle.
+Use **Rebuild search index** to refresh the saved search configuration.
+
+Settings are stored in `~/.config/crmne-files/settings.json` (or under
+`XDG_CONFIG_HOME`). Saving search settings does not change Hyprland. Enabling
+**Apply shortcut to Hyprland** and saving explicitly writes
+`~/.config/hypr/crmne-files.lua` and adds its include to `bindings.lua`. The view
+shows the proposed shortcut before you apply it. Existing conflicting bindings
+are rejected. An exact previous Files binding is migrated, hardware Search
+bindings are preserved, and backups are kept beside the configuration files.
+Hyprland is reloaded and checked; failed validation restores the previous files.
+Supported keys are Space, letters, digits, and F1 through F12 with modifiers.
+
+The right pane previews the selected file. Text is rendered as plain text,
+never HTML, and limited to 16 KiB. Supported raster images are reduced to a
+512-pixel thumbnail in a separate process: at most 8 MiB of input, 16 million
+pixels, 384 MiB of address space, two CPU seconds, and a three-second wall-clock
+timeout (plus a one-second forced-stop grace period). Only a bounded PNG reaches
+Qt. Previews remain in memory; no snippets or thumbnails are cached or sent over
+the network. Symbolic links, special files, and paths outside the search folder
+are not read for content previews. PDFs and other unsupported formats show file
+information. The pane hides on screens narrower than 900 logical pixels.
+
+Files has no bar widget. If you installed version 1.1.0, remove its Files entry
+from the bar settings; the settings button now lives inside the overlay.
+
+To undo the managed shortcut, remove the Files `dofile(...)` line from
+`~/.config/hypr/bindings.lua`, delete `~/.config/hypr/crmne-files.lua`, and reload
+Hyprland. Removing the plugin does not silently edit your Hyprland configuration.
 
 ## Actions
 
@@ -136,7 +171,9 @@ last build is more than a minute old, and the previous index keeps answering
 meanwhile. The first build takes a few seconds; the overlay says it is indexing
 until it lands.
 
-To skip other folders, edit `EXCLUDES` at the top of `bin/crmne-files`.
+Set excluded folders from the settings button inside the overlay. The defaults
+are `go` and `Android`. Different exclusions use separate indexes. Index files
+are private to your user, and contain paths, never preview contents.
 
 ## Omarchy menu
 
@@ -180,7 +217,8 @@ commands every action runs live in `FilesModel.js` as pure functions:
 
 ```bash
 node --test tests/
-tests/check-input               # Quickshell input tests with a fake clipboard
+tests/check-input               # Quickshell input/settings tests with a fake clipboard
+/usr/bin/python3 tests/support.test.py
 ```
 
 The helper is usable on its own:
