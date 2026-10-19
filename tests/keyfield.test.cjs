@@ -55,4 +55,3 @@ test('Lines wrap after spaces, inside long words, and at hard breaks', () => {
   assert.equal(edit.positionInLine('aaa bbb ccc', layout[0], 500, measure), 7, 'the end of a wrapped line stays on it');
   assert.deepEqual(Array.from(edit.lines("", 80, measure, true), l => [l.start, l.end]), [[0, 0]]);
 });
-
