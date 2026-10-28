@@ -273,6 +273,17 @@ function footerStatus(state) {
   return state.count === 1 ? "1 result" : state.count + " results"
 }
 
+// "318.6 MB" for a preview's size line; bytes below a kilobyte.
+function sizeLabel(bytes) {
+  var n = Number(bytes)
+  if (!isFinite(n) || n < 0) return ""
+  if (n < 1000) return n + (n === 1 ? " byte" : " bytes")
+  var units = ["kB", "MB", "GB", "TB"]
+  var i = -1
+  do { n /= 1000; i++ } while (n >= 999.95 && i < units.length - 1)
+  return n.toFixed(1) + " " + units[i]
+}
+
 // file:// URI with each path segment percent-encoded, as text/uri-list wants.
 function fileUri(path) {
   return "file://" + String(path || "").split("/").map(encodeURIComponent).join("/")
@@ -290,9 +301,8 @@ function commandFor(actionId, item, options) {
   var shown = home && path.indexOf(home + "/") === 0 ? "~" + path.slice(home.length) : path
   switch (actionId) {
     case "open":
-      return item.isDir
-        ? ["uwsm-app", "--", "nautilus", "--new-window", path]
-        : ["uwsm-app", "--", "xdg-open", path]
+      // Folders too, so they open in the default file manager.
+      return ["uwsm-app", "--", "xdg-open", path]
     case "openWith":
       if (!extra.appId) return null
       return ["uwsm-app", "--", extra.appId, path]
@@ -364,7 +374,7 @@ function pathQuery(query, userHome) {
   if (q.indexOf("~/") === 0) q = trimSlash(userHome) + q.slice(1)
   if (q.charAt(0) !== "/") return null
   var at = q.lastIndexOf("/")
-  return { folder: q.slice(0, at + 1), name: q.slice(at + 1) }
+  return { folder: q.slice(0, at + 1), name: q.slice(at + 1).replace(/\s+$/, "") }
 }
 
 // The typed path one level up: the name being typed goes first, then the
@@ -405,9 +415,15 @@ function appsCommand(helper, path) {
   }
 }
 
-// Clipboard text becomes one search line, with controls and truncated Unicode removed.
+// Clipboard text becomes one search line, with controls and truncated Unicode
+// removed. A copied path loses its final line break, and a file:// URI, as
+// file managers copy one, becomes its path.
 function pastedFilter(filter, value) {
-  var text = String(value || "").slice(0, 4096)
+  var text = String(value || "").slice(0, 4096).replace(/[\r\n]+$/, "")
+  if (/^file:\/\/\/[^\r\n]*$/.test(text)) {
+    try { text = decodeURIComponent(text.slice(7)) } catch (e) {}
+  }
+  text = text
     .replace(/\r\n?|\n|\t/g, " ")
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
     .replace(/\ufffd+$/, "")
@@ -437,6 +453,7 @@ if (typeof module !== "undefined") {
     footerHint: footerHint,
     footerStatus: footerStatus,
     fileUri: fileUri,
+    sizeLabel: sizeLabel,
     commandFor: commandFor,
     searchCommand: searchCommand,
     pathQuery: pathQuery,

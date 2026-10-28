@@ -6,6 +6,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "FilesModel.js" as Model
+import "ui/KeyEdit.js" as KeyEdit
 
 Item {
   id: root
@@ -139,6 +140,48 @@ Item {
     return root.resultRows[root.selectedIndex]
   }
   readonly property string filterText: root.view === "results" ? root.query : root.actionQuery
+
+  // The caret and selection in the filter being typed, as KeyEdit positions.
+  // A filter replaced from outside (a new view, going back, a folder) puts
+  // the caret at its end and starts a new undo history.
+  property int caret: 0
+  property int caretAnchor: 0
+  property bool editingFilter: false
+  property var filterHistory: []
+  onFilterTextChanged: {
+    if (root.editingFilter) return
+    root.caret = root.filterText.length
+    root.caretAnchor = root.caret
+    root.filterHistory = []
+  }
+  onCaretChanged: { caretBlink.lit = true; caretBlink.restart() }
+
+  function filterState() {
+    return { text: root.filterText, cursor: root.caret, anchor: root.caretAnchor }
+  }
+
+  // Move the caret, or apply a typed edit to the filter, which runs the search.
+  function editFilter(next) {
+    if (next.text !== root.filterText) {
+      root.filterHistory = root.filterHistory.concat([root.filterState()]).slice(-100)
+    }
+    root.editingFilter = true
+    root.caret = next.cursor
+    root.caretAnchor = next.anchor
+    if (next.text !== root.filterText) {
+      if (root.view === "results") root.setQuery(next.text)
+      else root.setActionQuery(next.text)
+    }
+    root.editingFilter = false
+  }
+
+  function undoFilter() {
+    if (!root.filterHistory.length) return
+    var previous = root.filterHistory[root.filterHistory.length - 1]
+    var history = root.filterHistory.slice(0, -1)
+    root.editFilter(previous)
+    root.filterHistory = history
+  }
 
   // ------------------------------------------------------------ lifecycle
 
@@ -529,6 +572,16 @@ Item {
       return true
     }
 
+    // Clipboard keys act on selected text. Without a selection, Ctrl C stays
+    // Copy Path. Copying writes the clipboard and never reads it.
+    var s = root.filterState()
+    if (event.modifiers === Qt.ControlModifier && KeyEdit.hasSelection(s)
+        && (event.key === Qt.Key_C || event.key === Qt.Key_X)) {
+      Quickshell.clipboardText = KeyEdit.selectedText(s)
+      if (event.key === Qt.Key_X) root.editFilter(KeyEdit.backspace(s, false))
+      return true
+    }
+
     var target = root.currentItem
     if (root.view !== "apps") {
       var shortcut = Model.shortcutAction({ key: root.keyName(event.key), ctrl: ctrl, shift: shift, alt: alt }, target)
@@ -539,12 +592,8 @@ Item {
     }
 
     if (event.key === Qt.Key_Escape) {
-      if (filter) {
-        if (root.view === "results") root.setQuery("")
-        else root.setActionQuery("")
-      } else if (!root.back()) {
-        root.dismiss()
-      }
+      if (filter) root.editFilter(KeyEdit.clear())
+      else if (!root.back()) root.dismiss()
       return true
     }
 
@@ -559,27 +608,44 @@ Item {
       return true
     }
 
-    // In a typed path, ← and Ctrl Backspace climb one folder at a time.
-    if (root.view === "results" && root.pathMode
-        && (event.key === Qt.Key_Left || (event.key === Qt.Key_Backspace && event.modifiers === Qt.ControlModifier))) {
-      root.setQuery(Model.pathUp(root.query))
+    if (event.modifiers === Qt.ControlModifier) {
+      if (event.key === Qt.Key_A) { root.editFilter(KeyEdit.selectAll(s)); return true }
+      if (event.key === Qt.Key_Z) { root.undoFilter(); return true }
+      if (event.key === Qt.Key_U) { root.editFilter(KeyEdit.clear()); return true }
+    }
+
+    if (event.key === Qt.Key_Backspace && !alt) {
+      if (!filter) root.back()
+      // In a typed path, Ctrl Backspace climbs one folder at a time.
+      else if (ctrl && root.view === "results" && root.pathMode && !KeyEdit.hasSelection(s)
+               && root.caret === filter.length) root.editFilter(KeyEdit.state(Model.pathUp(filter)))
+      else root.editFilter(KeyEdit.backspace(s, ctrl))
       return true
     }
 
-    if (Util.editsFilter(event, filter)) {
-      var edited = Util.editedFilter(event, filter)
-      if (root.view === "results") root.setQuery(edited)
-      else root.setActionQuery(edited)
+    if (event.key === Qt.Key_Delete && !ctrl && !alt) {
+      root.editFilter(KeyEdit.forwardDelete(s, false))
       return true
     }
 
-    if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !filter) {
-      root.back()
+    if (event.key === Qt.Key_Home || event.key === Qt.Key_End) {
+      root.editFilter(KeyEdit.moveTo(s, event.key === Qt.Key_Home ? 0 : filter.length, shift))
+      return true
+    }
+
+    // ← and → move the caret. At the start of the text ← goes back, and at
+    // its end → browses into a folder or opens the actions, as before.
+    var plainArrow = !ctrl && !shift && !alt && !KeyEdit.hasSelection(s)
+    if (event.key === Qt.Key_Left) {
+      if (plainArrow && root.caret === 0) root.back()
+      else root.editFilter(KeyEdit.left(s, ctrl, shift))
       return true
     }
 
     if (event.key === Qt.Key_Right) {
-      if (root.view === "results" && target) {
+      if (!plainArrow || root.caret < filter.length) {
+        root.editFilter(KeyEdit.right(s, ctrl, shift))
+      } else if (root.view === "results" && target) {
         if (target.isDir) root.browseInto(target)
         else root.openActions(target)
       } else if (root.view === "actions" && root.actionRows[root.selectedIndex] && root.actionRows[root.selectedIndex].submenu) {
@@ -599,8 +665,7 @@ Item {
     }
 
     if (root.isPrintable(event)) {
-      if (root.view === "results") root.setQuery(root.query + event.text)
-      else root.setActionQuery(root.actionQuery + event.text)
+      root.editFilter(KeyEdit.insert(s, event.text))
       return true
     }
 
@@ -618,9 +683,7 @@ Item {
     onExited: function(exitCode, exitStatus) {
       if (exitCode !== 0 || exitStatus !== 0 || revision !== root.inputRevision
           || !root.opened || root.trashConfirmOpen) return
-      var text = Model.pastedFilter(root.filterText, pasteOutput.text)
-      if (root.view === "results") root.setQuery(text)
-      else root.setActionQuery(text)
+      root.editFilter(KeyEdit.insert(root.filterState(), Model.pastedFilter("", pasteOutput.text), 4096))
     }
   }
 
@@ -857,6 +920,7 @@ Item {
           }
 
           Item {
+            id: filterBox
             anchors.left: prefixText.visible ? prefixText.right : parent.left
             anchors.right: settingsButton.left
             anchors.rightMargin: Style.spacing.sm
@@ -864,10 +928,32 @@ Item {
             height: root.headerHeight
             clip: true
 
+            readonly property real caretX: filterMetrics.advanceWidth(root.filterText.slice(0, root.caret))
+            // Long text scrolls so the caret stays in view.
+            readonly property real offset: Math.min(0, width - caretX - Style.space(3))
+            function positionAt(x) {
+              var text = root.filterText
+              return KeyEdit.positionInLine(text, { start: 0, end: text.length, hard: true }, x - offset,
+                function(value) { return filterMetrics.advanceWidth(value) })
+            }
+
+            FontMetrics { id: filterMetrics; font: filterLabel.font }
+
+            Rectangle {
+              readonly property int from: Math.min(root.caret, root.caretAnchor)
+              readonly property int to: Math.max(root.caret, root.caretAnchor)
+              visible: to > from && keyCatcher.activeFocus
+              x: filterBox.offset + filterMetrics.advanceWidth(root.filterText.slice(0, from))
+              width: filterMetrics.advanceWidth(root.filterText.slice(from, to))
+              height: Style.font.heading * 1.3
+              anchors.verticalCenter: parent.verticalCenter
+              color: Style.selectionFillFor(root.foreground, Commons.Color.accent)
+            }
+
             Text {
               id: filterLabel
               anchors.verticalCenter: parent.verticalCenter
-              x: root.filterText ? Math.min(0, parent.width - implicitWidth - Style.space(3)) : 0
+              x: root.filterText ? filterBox.offset : 0
               textFormat: Text.PlainText
               text: root.filterText || Model.headerPlaceholder(root.view, root.scope, root.actionTarget ? root.actionTarget.name : "")
               color: root.foreground
@@ -879,17 +965,25 @@ Item {
             Rectangle {
               id: inputCaret
               objectName: "inputCaret"
-              x: root.filterText ? filterLabel.x + filterLabel.implicitWidth + Style.space(1) : 0
+              x: root.filterText ? filterBox.offset + filterBox.caretX : 0
               anchors.verticalCenter: parent.verticalCenter
               width: Math.max(1, Style.space(1))
               height: Style.font.heading * 1.2
               color: root.foreground
               visible: keyCatcher.activeFocus && !root.trashConfirmOpen && caretBlink.lit
             }
+            // Click places the caret, dragging selects, a double click selects everything.
             MouseArea {
               anchors.fill: parent
               cursorShape: Qt.IBeamCursor
-              onClicked: keyCatcher.forceActiveFocus()
+              onPressed: function(mouse) {
+                keyCatcher.forceActiveFocus()
+                root.editFilter(KeyEdit.moveTo(root.filterState(), filterBox.positionAt(mouse.x), false))
+              }
+              onPositionChanged: function(mouse) {
+                if (pressed) root.editFilter(KeyEdit.moveTo(root.filterState(), filterBox.positionAt(mouse.x), true))
+              }
+              onDoubleClicked: root.editFilter(KeyEdit.selectAll(root.filterState()))
             }
           }
         }

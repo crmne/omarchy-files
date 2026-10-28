@@ -91,9 +91,13 @@ test("a typed path lists any folder, filtered, with hidden names only when asked
     const prefix = outside + "/"
     const browse = query => call(box, Model.searchCommand(HELPER, box.root, prefix + query, ""))
 
-    assert.deepEqual(browse(""), [prefix + "Diary/", prefix + "linked/", prefix + "it's private.txt"])
+    assert.deepEqual(browse(""), [prefix, prefix + "Diary/", prefix + "linked/", prefix + "it's private.txt"])
     assert.deepEqual(browse("priv"), [prefix + "it's private.txt"])
     assert.deepEqual(browse(".pri"), [prefix + ".private/"])
+    // A name typed in full leads, ahead of longer names fzf ranks first.
+    fs.mkdirSync(path.join(outside, "Diary archive"))
+    fs.writeFileSync(path.join(outside, "linked-Diary"), "")
+    assert.equal(browse("Diary")[0], prefix + "Diary/")
     const missing = Model.searchCommand(HELPER, box.root, "/no such folder/x", "")
     assert.equal(spawnSync(missing.command[0], missing.command.slice(1), { env: { ...box.env, ...missing.environment } }).status, 4)
     assert.doesNotMatch(fs.readFileSync(box.log, "utf8"), PRIVATE)

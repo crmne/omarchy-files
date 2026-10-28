@@ -161,18 +161,26 @@ list() {
 # anywhere on the system, whose name matches CRMNE_FILES_QUERY. Nothing is
 # excluded, symbolic links are listed so /bin and /lib can be followed, and
 # hidden entries appear once the typed name starts with a dot, as in a shell.
+# A name typed in full comes first, and a folder typed with nothing after its
+# slash leads with itself, so Enter on a pasted path opens what it names.
 browse() {
   local folder=${CRMNE_FILES_FOLDER:-} query=${CRMNE_FILES_QUERY:-}
   [[ $folder == /* ]] || exit 4
-  local -x CRMNE_FILES_PREFIX="${folder%/}/"
+  local -x CRMNE_FILES_PREFIX="${folder%/}/" CRMNE_FILES_NAME=$query
   cd "$folder" 2>/dev/null || exit 4
   local hidden=()
   [[ $query == .* ]] && hidden=(--hidden)
   if [[ -z $query ]]; then
-    children --type d --type f --type l --no-ignore | head -n "$LIST_LIMIT"
+    [[ $CRMNE_FILES_PREFIX == / ]] || printf '%s\n' "$CRMNE_FILES_PREFIX"
+    children --type d --type f --type l --no-ignore | head -n "$LIST_LIMIT" |
+      gawk '{ print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'
   else
-    children --type d --type f --type l --no-ignore "${hidden[@]}" | filter | head -n "$LIMIT"
-  fi | gawk '{ print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'
+    children --type d --type f --type l --no-ignore "${hidden[@]}" | filter | head -n "$LIMIT" |
+      gawk 'BEGIN { n = ENVIRON["CRMNE_FILES_NAME"]; p = ENVIRON["CRMNE_FILES_PREFIX"] }
+        $0 == n || $0 == n "/" { print p $0; next }
+        { rest[++count] = $0 }
+        END { for (i = 1; i <= count; i++) print p rest[i] }'
+  fi
 }
 
 desktop_file() {

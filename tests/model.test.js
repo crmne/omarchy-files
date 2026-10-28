@@ -50,6 +50,7 @@ test("a query starting with / or ~/ is a path to browse, one folder at a time", 
   assert.equal(Model.pathQuery("tax 2025", HOME), null)
   assert.equal(Model.pathQuery("~", HOME), null)
   assert.equal(Model.pathQuery("a/b", HOME), null)
+  assert.deepEqual(Model.pathQuery("/etc/hosts ", HOME), { folder: "/etc/", name: "hosts" })
 
   assert.equal(Model.pathUp("/etc/ho"), "/etc/")
   assert.equal(Model.pathUp("/etc/ssh/"), "/etc/")
@@ -177,7 +178,7 @@ test("action commands are argv vectors with the path as its own argument", () =>
   const opts = { home: HOME }
 
   assert.deepEqual(Model.commandFor("open", file, opts), ["uwsm-app", "--", "xdg-open", file.path])
-  assert.deepEqual(Model.commandFor("open", folder, opts), ["uwsm-app", "--", "nautilus", "--new-window", folder.path])
+  assert.deepEqual(Model.commandFor("open", folder, opts), ["uwsm-app", "--", "xdg-open", folder.path])
   assert.deepEqual(Model.commandFor("reveal", file, opts), ["uwsm-app", "--", "nautilus", "--new-window", "--select", file.path])
   assert.deepEqual(Model.commandFor("reveal", folder, opts), ["uwsm-app", "--", "nautilus", "--new-window", folder.path])
   assert.deepEqual(Model.commandFor("terminal", file, opts), ["uwsm-app", "--", "xdg-terminal-exec", "--dir=/home/demo/Docs"])
@@ -261,10 +262,23 @@ test("the search and Open With calls keep what was typed off the command line", 
 })
 
 
+test("preview sizes read as people write them", () => {
+  assert.equal(Model.sizeLabel(0), "0 bytes")
+  assert.equal(Model.sizeLabel(1), "1 byte")
+  assert.equal(Model.sizeLabel(999), "999 bytes")
+  assert.equal(Model.sizeLabel(1000), "1.0 kB")
+  assert.equal(Model.sizeLabel(318640578), "318.6 MB")
+  assert.equal(Model.sizeLabel(999999999), "1.0 GB")
+  assert.equal(Model.sizeLabel(undefined), "")
+})
+
 test("pasted filters normalize lines, strip controls and bound clipboard text", () => {
   assert.equal(Model.pastedFilter("old ", "one\r\ntwo\tthree\u0000\u001b"), "old one two three")
   assert.equal(Model.pastedFilter("", "x".repeat(6000)).length, 4096)
   assert.equal(Model.pastedFilter("", "partial\ufffd"), "partial")
   assert.equal(Model.pastedFilter("", "x".repeat(4095) + "😀"), "x".repeat(4095))
   assert.equal(Model.pastedFilter("", "$(touch /tmp/never)"), "$(touch /tmp/never)")
+  assert.equal(Model.pastedFilter("", "/home/demo/Code/\n"), "/home/demo/Code/")
+  assert.equal(Model.pastedFilter("", "file:///home/demo/My%20Files/a.txt\n"), "/home/demo/My Files/a.txt")
+  assert.equal(Model.pastedFilter("", "file:///bad%zz"), "file:///bad%zz")
 })

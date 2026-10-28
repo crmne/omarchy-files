@@ -97,8 +97,13 @@ shortcut; add the binding above yourself, or configure it in the overlay setting
 ## Using it
 
 Start typing. With nothing typed, the overlay lists the files you changed most
-recently. A blinking caret shows where typing and pasted text will appear.
+recently. The search edits like a text field: `←` `→` move the caret,
+`Shift` selects, `Ctrl ←` `Ctrl →` jump by word, `Home` and `End` go to either
+end, `Ctrl A` selects everything, `Ctrl Z` undoes, and you can click to place
+the caret or drag to select. `Ctrl C` and `Ctrl X` copy and cut selected text;
+with no text selected, `Ctrl C` copies the selected file's path.
 Use `Ctrl V` or `Shift Insert` to paste into the search or either action filter.
+A pasted `file://` link becomes its path.
 Clipboard reads happen only on paste, in a separate process limited to 4096
 bytes and two seconds (with a one-second forced-stop grace period). Line breaks
 become spaces, control characters are removed, and results arriving after you
@@ -108,10 +113,11 @@ edit, navigate, or close the overlay are discarded.
 |---|---|
 | typing | search everything under `~` |
 | `/` or `~/` first | browse that path anywhere on the system, narrowed by the name being typed |
+| `Ctrl Backspace` in a typed path | climb one folder |
 | `↑` `↓` `PgUp` `PgDn` | move |
-| `↵` | open (files in their default app, folders in Files) |
-| `→` | browse into a folder, or open the actions of a file |
-| `←` or `Backspace` on an empty search | go back up |
+| `↵` | open (files in their default app, folders in your file manager) |
+| `→` at the end of the search | browse into a folder, or open the actions of a file |
+| `←` at the start of the search, or `Backspace` on an empty one | go back up |
 | `⇥` or `Ctrl K` | actions for the selection |
 | `Esc` | clear the search, then go back up, then close |
 
@@ -121,8 +127,9 @@ going back restores the search and selection you came from.
 Type or paste a path to go anywhere, inside your home or not. `/` lists the
 top of the file system, `/etc/ho` lists `/etc` narrowed to names matching
 `ho`, and a full path such as `/etc/hosts` selects that file and previews it.
-`→` on a folder adds it to the path, and `←` or `Ctrl Backspace` climbs back
-one folder at a time. A typed path lists everything in the folder, including
+A folder path ending in `/` lists the folder itself first, so `↵` opens it.
+`→` on a folder adds it to the path, and `Ctrl Backspace` climbs back one
+folder at a time. A typed path lists everything in the folder, including
 symbolic links and files your `.gitignore` excludes; hidden entries appear
 once the name you type starts with a dot.
 
@@ -130,9 +137,9 @@ once the name you type starts with a dot.
 |---|---|
 | typing | filter the actions |
 | `↵` | run the action |
-| `→` | open the Open With list, where `↵` launches the app |
+| `→` at the end of the filter | open the Open With list, where `↵` launches the app |
 | `Esc` | clear the filter, then go back |
-| `⇧ ⇥`, `Ctrl K`, or `←` or `Backspace` on an empty filter | back to the results, search and selection intact |
+| `⇧ ⇥`, `Ctrl K`, `←` at the start of the filter, or `Backspace` on an empty one | back to the results, search and selection intact |
 
 ## Settings and previews
 
@@ -210,12 +217,12 @@ through its shortcut.
 
 | Action | Shortcut | Applies to |
 |---|---|---|
-| Open | `↵` | everything |
+| Open | `↵` | everything, folders in your default file manager |
 | Open With… | | everything, lists the apps registered for the file type |
 | Show in Files | `Ctrl ↵` | everything |
 | Open in Editor | `Ctrl E` | folders, code, and text, with your Omarchy editor |
 | Open Terminal Here | `Ctrl T` | everything, files open their folder |
-| Copy Path | `Ctrl C` | everything |
+| Copy Path | `Ctrl C` | everything, when no text in the search is selected |
 | Copy File (or Folder) | `Ctrl Shift C` | everything, pastes as a file in Files and most apps |
 | Share | `Alt ↵` | everything, through LocalSend |
 | Set as Background | | images |

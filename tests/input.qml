@@ -85,19 +85,73 @@ ShellRoot {
       compare(files.query, "notes")
       tryVerify(function() { return JSON.parse(files.state()).inputFocused }, 1000)
     }
+    function key(k, modifiers, text) {
+      return files.handleKey({key: k, modifiers: modifiers || Qt.NoModifier, text: text || ""})
+    }
+    function type(text) {
+      for (var i = 0; i < text.length; i++) verify(key(0, Qt.NoModifier, text[i]))
+    }
     function test_typed_path_browses_outside_the_search_folder() {
       var outside = Quickshell.env("FILES_TEST_OUTSIDE")
       files.setQuery(outside + "/no")
       tryVerify(function() { return JSON.parse(files.state()).selected === outside + "/notes" }, 4000)
       compare(files.currentItem.absolute, true)
+      // A folder typed with its slash leads with itself, so Enter opens it.
       files.setQuery(outside + "/")
-      tryVerify(function() { return JSON.parse(files.state()).selected === outside + "/inside" }, 4000)
-      verify(files.handleKey({key: Qt.Key_Right, modifiers: Qt.NoModifier, text: ""}))
+      tryVerify(function() { return JSON.parse(files.state()).selected === outside }, 4000)
+      verify(key(Qt.Key_Down))
+      compare(JSON.parse(files.state()).selected, outside + "/inside")
+      verify(key(Qt.Key_Right))
       compare(files.query, outside + "/inside/")
-      verify(files.handleKey({key: Qt.Key_Left, modifiers: Qt.NoModifier, text: ""}))
+      verify(key(Qt.Key_Backspace, Qt.ControlModifier))
       compare(files.query, outside + "/")
-      files.handleKey({key: Qt.Key_Backspace, modifiers: Qt.ControlModifier, text: ""})
+      verify(key(Qt.Key_Backspace, Qt.ControlModifier))
       compare(files.query, outside.replace(/[^/]+$/, ""))
+    }
+    function test_the_filter_edits_like_a_text_field() {
+      // Copy and cut write the session clipboard; put back what was there.
+      var saved = Quickshell.clipboardText
+      try { editing() } finally { Quickshell.clipboardText = saved }
+    }
+    function editing() {
+      type("hello world")
+      compare(files.caret, 11)
+      verify(key(Qt.Key_Left, Qt.ControlModifier))
+      compare(files.caret, 6)
+      type("big ")
+      compare(files.query, "hello big world")
+      verify(key(Qt.Key_Home))
+      verify(key(Qt.Key_Right, Qt.ShiftModifier))
+      verify(key(Qt.Key_Right, Qt.ShiftModifier))
+      // Copy takes the selected text, not the selected file's path.
+      verify(key(Qt.Key_X, Qt.ControlModifier))
+      compare(files.query, "llo big world")
+      compare(Quickshell.clipboardText, "he")
+      verify(key(Qt.Key_Z, Qt.ControlModifier))
+      compare(files.query, "hello big world")
+      verify(key(Qt.Key_A, Qt.ControlModifier))
+      verify(key(Qt.Key_C, Qt.ControlModifier))
+      compare(Quickshell.clipboardText, "hello big world")
+      type("x")
+      compare(files.query, "x")
+      verify(key(Qt.Key_End))
+      verify(key(Qt.Key_Delete))
+      compare(files.query, "x")
+      verify(key(Qt.Key_Left))
+      verify(key(Qt.Key_Delete))
+      compare(files.query, "")
+    }
+    function test_arrows_navigate_only_at_the_ends_of_the_text() {
+      files.setQuery("notes")
+      tryVerify(function() { return JSON.parse(files.state()).selected === "notes.txt" }, 4000)
+      verify(key(Qt.Key_Left))
+      compare(files.caret, 4)
+      compare(files.view, "results")
+      verify(key(Qt.Key_End))
+      verify(key(Qt.Key_Right))
+      compare(files.view, "actions")
+      verify(key(Qt.Key_Left))
+      compare(files.view, "results")
     }
     function test_navigation_still_works() {
       files.setQuery("hello world")

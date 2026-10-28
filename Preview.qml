@@ -3,6 +3,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import qs.Commons as Commons
+import "FilesModel.js" as Model
 
 Item {
   id: root
@@ -121,7 +122,7 @@ Item {
     anchors.leftMargin: Style.spacing.lg
     spacing: Style.spacing.md
     Text { font.family: root.fontFamily; width: parent.width; text: root.result.name || "Preview"; textFormat: Text.PlainText; elide: Text.ElideMiddle; color: Commons.Color.menu.text; font.pixelSize: Style.font.heading }
-    Text { font.family: root.fontFamily; width: parent.width; text: root.result.size !== undefined ? root.result.size.toLocaleString() + " bytes\n" + root.result.modified : ""; color: Commons.Color.menu.text; opacity: 0.65; font.pixelSize: Style.font.caption }
+    Text { font.family: root.fontFamily; width: parent.width; text: root.result.size !== undefined ? Model.sizeLabel(root.result.size) + "\n" + root.result.modified : ""; color: Commons.Color.menu.text; opacity: 0.65; font.pixelSize: Style.font.caption }
     Image { visible: !!root.result.image; width: parent.width; height: Math.min(width, root.height - Style.space(230)); fillMode: Image.PreserveAspectFit; source: root.result.image || ""; sourceSize.width: 512; sourceSize.height: 512; asynchronous: true }
     Row {
       visible: root.result.kind === "pdf"
