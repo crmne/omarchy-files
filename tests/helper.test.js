@@ -79,6 +79,29 @@ test("no query, folder, or file name reaches a command line", () => {
   }
 })
 
+test("a typed path lists any folder, filtered, with hidden names only when asked for", () => {
+  const box = sandbox()
+  try {
+    const outside = path.join(box.dir, "Secret elsewhere")
+    fs.mkdirSync(path.join(outside, "Diary"), { recursive: true })
+    fs.mkdirSync(path.join(outside, ".private"))
+    fs.writeFileSync(path.join(outside, "it's private.txt"), "")
+    fs.writeFileSync(path.join(outside, ".gitignore"), "*.txt\n")
+    fs.symlinkSync(path.join(outside, "Diary"), path.join(outside, "linked"))
+    const prefix = outside + "/"
+    const browse = query => call(box, Model.searchCommand(HELPER, box.root, prefix + query, ""))
+
+    assert.deepEqual(browse(""), [prefix + "Diary/", prefix + "linked/", prefix + "it's private.txt"])
+    assert.deepEqual(browse("priv"), [prefix + "it's private.txt"])
+    assert.deepEqual(browse(".pri"), [prefix + ".private/"])
+    const missing = Model.searchCommand(HELPER, box.root, "/no such folder/x", "")
+    assert.equal(spawnSync(missing.command[0], missing.command.slice(1), { env: { ...box.env, ...missing.environment } }).status, 4)
+    assert.doesNotMatch(fs.readFileSync(box.log, "utf8"), PRIVATE)
+  } finally {
+    fs.rmSync(box.dir, { recursive: true, force: true })
+  }
+})
+
 test("a query matches as it would on fzf's command line, whatever its quotes and symbols", () => {
   const box = sandbox()
   try {

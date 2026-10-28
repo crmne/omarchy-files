@@ -18,6 +18,8 @@ Item {
   readonly property string pluginId: (root.manifest && root.manifest.id) || "crmne.files"
   // Where the search looks: $HOME, unless a summon payload names a folder.
   property string home: Quickshell.env("HOME")
+  // Where "~/" in a typed path points, whatever folder is being searched.
+  readonly property string userHome: Quickshell.env("HOME")
   readonly property string helper: decodeURIComponent(String(Qt.resolvedUrl("bin/crmne-files")).replace(/^file:\/\//, ""))
   readonly property int resultLimit: 200
   // Rebuild the index on open once it is older than this many seconds.
@@ -71,6 +73,8 @@ Item {
   property var resultRows: []
   property var scopeStack: []
   property var removedPaths: ({})
+  // A query starting with "/" or "~/" browses that path anywhere on the system.
+  readonly property bool pathMode: Model.pathQuery(root.query, root.userHome) !== null
 
   property var actionTarget: null
   property string actionQuery: ""
@@ -228,7 +232,7 @@ Item {
 
   function runSearch() {
     root.searchSerial += 1
-    root.wantedSearch = Model.searchCommand(root.helper, root.home, root.query, root.scope)
+    root.wantedSearch = Model.searchCommand(root.helper, root.home, root.query, root.scope, root.userHome)
     root.wantedSearch.environment.CRMNE_FILES_EXCLUDES = root.preferences.excludes.join("\n")
     // A search still running belongs to an older query: stop it, and its exit
     // starts this one.
@@ -264,6 +268,11 @@ Item {
 
   function browseInto(item) {
     if (!item || !item.isDir) return
+    // A typed path descends by typing more of it.
+    if (item.absolute) {
+      root.setQuery(item.path + "/")
+      return
+    }
     root.scopeStack = root.scopeStack.concat([{
       scope: root.scope, query: root.query, rows: root.resultRows, index: root.selectedIndex
     }])
@@ -365,7 +374,7 @@ Item {
     if (root.view === "results") {
       // A folder's own listing needs no location line, as the menu shows
       // detail only while a search narrows it.
-      var listing = !!root.scope && !root.query
+      var listing = (!!root.scope && !root.query) || root.pathMode
       for (var i = 0; i < root.resultRows.length; i++) {
         var row = root.resultRows[i]
         displayModel.append({ rowKind: "file", icon: row.icon, appIcon: "", label: row.name, detail: listing ? "" : row.detail, trail: "", chevron: row.isDir })
@@ -547,6 +556,13 @@ Item {
     if (event.key === Qt.Key_Tab || (event.key === Qt.Key_K && ctrl)) {
       if (root.view === "results") root.openActions(target)
       else if (event.key === Qt.Key_K) root.back()
+      return true
+    }
+
+    // In a typed path, ← and Ctrl Backspace climb one folder at a time.
+    if (root.view === "results" && root.pathMode
+        && (event.key === Qt.Key_Left || (event.key === Qt.Key_Backspace && event.modifiers === Qt.ControlModifier))) {
+      root.setQuery(Model.pathUp(root.query))
       return true
     }
 
@@ -792,7 +808,8 @@ Item {
         width: Style.space(330)
         helper: root.supportHelper
         path: root.currentItem ? root.currentItem.path : ""
-        searchRoot: root.home
+        // A path typed by hand is previewed wherever it is.
+        searchRoot: root.currentItem && root.currentItem.absolute ? "/" : root.home
       }
       Column {
         visible: !root.settingsVisible
@@ -821,7 +838,7 @@ Item {
             if (!root.filterText) return ""
             if (root.view === "actions") return root.actionTarget ? root.actionTarget.name + " › " : ""
             if (root.view === "apps") return root.actionTarget ? root.actionTarget.name + " › Open With › " : ""
-            return root.scope ? Model.basename(root.scope) + " › " : ""
+            return root.scope && !root.pathMode ? Model.basename(root.scope) + " › " : ""
           }
 
           Text {

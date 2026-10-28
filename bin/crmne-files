@@ -6,6 +6,7 @@
 #   crmne-files index [max-age-seconds]   rebuild the index if missing or older
 #   crmne-files search                    fuzzy-match the index, best first
 #   crmne-files list                      a folder's children, folders first
+#   crmne-files browse                    any absolute folder's children, filtered
 #   crmne-files apps                      applications that open a file
 #
 # The rest comes in the environment, never as arguments: CRMNE_FILES_QUERY
@@ -124,6 +125,21 @@ search() {
     gawk '{ print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'
 }
 
+# The current folder's children, folders first, then by name, folders with a
+# trailing slash. The arguments narrow what fd lists.
+children() {
+  local name
+  fd --max-depth 1 "$@" --print0 . |
+    while IFS= read -r -d '' name; do
+      name=${name#./}
+      [[ $name == *$'\n'* ]] && continue
+      name=${name%/}
+      if [[ -d $name ]]; then printf '0\t%s/\n' "$name"; else printf '1\t%s\n' "$name"; fi
+    done |
+    sort -t $'\t' -k1,1n -k2,2f |
+    gawk '{ sub(/^[01]\t/, ""); print }'
+}
+
 list() {
   local folder=${CRMNE_FILES_FOLDER:-}
   folder=${folder%/}
@@ -136,16 +152,27 @@ list() {
   cd "$dir" || exit 4
   local excludes=() name
   for name in "${EXCLUDES[@]}"; do excludes+=(--exclude "$name"); done
-  fd --max-depth 1 --type d --type f "${excludes[@]}" --print0 . |
-    while IFS= read -r -d '' name; do
-      name=${name#./}
-      [[ $name == *$'\n'* ]] && continue
-      name=${name%/}
-      if [[ -d $name ]]; then printf '0\t%s/\n' "$name"; else printf '1\t%s\n' "$name"; fi
-    done |
-    sort -t $'\t' -k1,1n -k2,2f |
+  children --type d --type f "${excludes[@]}" |
     head -n "$LIST_LIMIT" |
-    gawk '{ sub(/^[01]\t/, ""); print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'
+    gawk '{ print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'
+}
+
+# A typed path such as /etc/ho: everything in CRMNE_FILES_FOLDER, absolute and
+# anywhere on the system, whose name matches CRMNE_FILES_QUERY. Nothing is
+# excluded, symbolic links are listed so /bin and /lib can be followed, and
+# hidden entries appear once the typed name starts with a dot, as in a shell.
+browse() {
+  local folder=${CRMNE_FILES_FOLDER:-} query=${CRMNE_FILES_QUERY:-}
+  [[ $folder == /* ]] || exit 4
+  local -x CRMNE_FILES_PREFIX="${folder%/}/"
+  cd "$folder" 2>/dev/null || exit 4
+  local hidden=()
+  [[ $query == .* ]] && hidden=(--hidden)
+  if [[ -z $query ]]; then
+    children --type d --type f --type l --no-ignore | head -n "$LIST_LIMIT"
+  else
+    children --type d --type f --type l --no-ignore "${hidden[@]}" | filter | head -n "$LIMIT"
+  fi | gawk '{ print ENVIRON["CRMNE_FILES_PREFIX"] $0 }'
 }
 
 desktop_file() {
@@ -194,9 +221,10 @@ case "${1:-}" in
   index) build_index "${2:-}" ;;
   search) search ;;
   list) list ;;
+  browse) browse ;;
   apps) apps ;;
   *)
-    echo "Usage: crmne-files [--root DIR] index [max-age] | search | list | apps" >&2
+    echo "Usage: crmne-files [--root DIR] index [max-age] | search | list | browse | apps" >&2
     exit 2
     ;;
 esac

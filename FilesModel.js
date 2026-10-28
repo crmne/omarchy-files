@@ -3,7 +3,8 @@
 // each action runs.
 //
 // Kept free of QML types so `node --test tests/model.test.js` can exercise the
-// rules directly. Paths arrive relative to $HOME, folders with a trailing "/".
+// rules directly. Paths arrive relative to $HOME, folders with a trailing "/",
+// except while a typed path is browsed, when they arrive absolute.
 
 var glyph = function(code) { return String.fromCodePoint(code) }
 
@@ -94,14 +95,25 @@ function displayFolder(rel) {
   return parent ? "~/" + parent : "~"
 }
 
+// "~/Code" for a folder under the search root, the full path elsewhere.
+function displayAbsoluteFolder(home, path) {
+  var base = trimSlash(home)
+  var parent = trimSlash(path).replace(/\/[^/]*$/, "") || "/"
+  if (base && parent === base) return "~"
+  if (base && parent.indexOf(base + "/") === 0) return "~" + parent.slice(base.length)
+  return parent
+}
+
 function itemFor(home, rel) {
   var line = String(rel || "")
   var kind = classify(line)
+  var absolute = line.charAt(0) === "/"
   return {
     rel: trimSlash(line),
-    path: absolutePath(home, line),
+    path: absolute ? trimSlash(line) : absolutePath(home, line),
     name: basename(line),
-    detail: displayFolder(line),
+    detail: absolute ? displayAbsoluteFolder(home, line) : displayFolder(line),
+    absolute: absolute,
     isDir: kind === "folder",
     kind: kind,
     icon: iconFor(kind)
@@ -343,11 +355,38 @@ function indexAfterRefresh(rows, previousPath, previousIndex) {
   return Math.max(0, Math.min(previousIndex || 0, rows.length - 1))
 }
 
-// The helper call for what the overlay shows: a folder's listing when nothing
-// is typed inside one, a search otherwise. What was typed and the folder go in
-// the environment, which only the user can read, never on a command line,
-// which every user on the machine can.
-function searchCommand(helper, home, query, scope) {
+// A query starting with "/" or "~/" is a path to browse rather than a search:
+// "/etc/ho" lists /etc, narrowed to names matching "ho". null otherwise.
+// userHome is the real $HOME, which "~" names even when another folder is
+// being searched.
+function pathQuery(query, userHome) {
+  var q = String(query || "")
+  if (q.indexOf("~/") === 0) q = trimSlash(userHome) + q.slice(1)
+  if (q.charAt(0) !== "/") return null
+  var at = q.lastIndexOf("/")
+  return { folder: q.slice(0, at + 1), name: q.slice(at + 1) }
+}
+
+// The typed path one level up: the name being typed goes first, then the
+// last folder. "/etc/ho" and "/etc/ssh/" both become "/etc/"; "/" empties it.
+function pathUp(query) {
+  var q = String(query || "")
+  var up = q.replace(/[^/]+\/?$/, "")
+  return up === q ? "" : up
+}
+
+// The helper call for what the overlay shows: a typed path's folder, a
+// folder's listing when nothing is typed inside one, a search otherwise. What
+// was typed and the folder go in the environment, which only the user can
+// read, never on a command line, which every user on the machine can.
+function searchCommand(helper, home, query, scope, userHome) {
+  var typed = pathQuery(query, userHome || home)
+  if (typed) {
+    return {
+      command: [helper, "browse"],
+      environment: { CRMNE_FILES_QUERY: typed.name, CRMNE_FILES_FOLDER: typed.folder }
+    }
+  }
   return {
     command: [helper, "--root", home, (!query && scope) ? "list" : "search"],
     environment: {
@@ -400,6 +439,8 @@ if (typeof module !== "undefined") {
     fileUri: fileUri,
     commandFor: commandFor,
     searchCommand: searchCommand,
+    pathQuery: pathQuery,
+    pathUp: pathUp,
     appsCommand: appsCommand,
     parseApps: parseApps,
     filterApps: filterApps,

@@ -9,6 +9,8 @@ ln -s "$files_repo" "$files_work/plugin"
 cp "$files_repo/tests/input.qml" "$files_work/shell.qml"
 mkdir -p "$files_work/bin" "$files_work/home" "$files_work/cache"
 printf 'fixture\n' > "$files_work/home/notes.txt"
+mkdir -p "$files_work/outside/inside"
+printf 'fixture\n' > "$files_work/outside/notes"
 cat > "$files_work/bin/wl-paste" <<'FAKE'
 #!/usr/bin/env bash
 sleep 0.2
@@ -16,7 +18,7 @@ printf 'line\none\ttwo\a'
 head -c 6000 /dev/zero | tr '\0' x
 FAKE
 chmod +x "$files_work/bin/wl-paste"
-PATH="$files_work/bin:$PATH" XDG_CONFIG_HOME="$files_work/config" XDG_CACHE_HOME="$files_work/cache" FILES_TEST_HOME="$files_work/home" \
+PATH="$files_work/bin:$PATH" XDG_CONFIG_HOME="$files_work/config" XDG_CACHE_HOME="$files_work/cache" FILES_TEST_HOME="$files_work/home" FILES_TEST_OUTSIDE="$files_work/outside" \
   timeout 30 quickshell -p "$files_work" --no-color > "$files_work/output.log" 2>&1 || { cat "$files_work/output.log"; exit 1; }
 cat "$files_work/output.log"
 rg -q 'FILES INPUT RESULTS [0-9]+ passed 0 failed' "$files_work/output.log"

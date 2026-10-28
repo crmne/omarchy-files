@@ -85,6 +85,20 @@ ShellRoot {
       compare(files.query, "notes")
       tryVerify(function() { return JSON.parse(files.state()).inputFocused }, 1000)
     }
+    function test_typed_path_browses_outside_the_search_folder() {
+      var outside = Quickshell.env("FILES_TEST_OUTSIDE")
+      files.setQuery(outside + "/no")
+      tryVerify(function() { return JSON.parse(files.state()).selected === outside + "/notes" }, 4000)
+      compare(files.currentItem.absolute, true)
+      files.setQuery(outside + "/")
+      tryVerify(function() { return JSON.parse(files.state()).selected === outside + "/inside" }, 4000)
+      verify(files.handleKey({key: Qt.Key_Right, modifiers: Qt.NoModifier, text: ""}))
+      compare(files.query, outside + "/inside/")
+      verify(files.handleKey({key: Qt.Key_Left, modifiers: Qt.NoModifier, text: ""}))
+      compare(files.query, outside + "/")
+      files.handleKey({key: Qt.Key_Backspace, modifiers: Qt.ControlModifier, text: ""})
+      compare(files.query, outside.replace(/[^/]+$/, ""))
+    }
     function test_navigation_still_works() {
       files.setQuery("hello world")
       files.handleKey({key: Qt.Key_Backspace, modifiers: Qt.ControlModifier, text: ""})

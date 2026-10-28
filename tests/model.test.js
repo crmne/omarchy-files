@@ -43,6 +43,34 @@ test("an index line becomes a row named by its basename and placed by its folder
   assert.equal(folder.isDir, true)
 })
 
+test("a query starting with / or ~/ is a path to browse, one folder at a time", () => {
+  assert.deepEqual(Model.pathQuery("/", HOME), { folder: "/", name: "" })
+  assert.deepEqual(Model.pathQuery("/etc/ho", HOME), { folder: "/etc/", name: "ho" })
+  assert.deepEqual(Model.pathQuery("~/Code/app", HOME), { folder: "/home/demo/Code/", name: "app" })
+  assert.equal(Model.pathQuery("tax 2025", HOME), null)
+  assert.equal(Model.pathQuery("~", HOME), null)
+  assert.equal(Model.pathQuery("a/b", HOME), null)
+
+  assert.equal(Model.pathUp("/etc/ho"), "/etc/")
+  assert.equal(Model.pathUp("/etc/ssh/"), "/etc/")
+  assert.equal(Model.pathUp("/etc/"), "/")
+  assert.equal(Model.pathUp("/"), "")
+  assert.equal(Model.pathUp("~/Code/"), "~/")
+  assert.equal(Model.pathUp("~/"), "")
+
+  const file = Model.itemFor(HOME, "/etc/hosts")
+  assert.equal(file.path, "/etc/hosts")
+  assert.equal(file.name, "hosts")
+  assert.equal(file.detail, "/etc")
+  assert.equal(file.absolute, true)
+  const folder = Model.itemFor(HOME, "/home/demo/Code/")
+  assert.equal(folder.path, "/home/demo/Code")
+  assert.equal(folder.isDir, true)
+  assert.equal(folder.detail, "~")
+  assert.equal(Model.itemFor(HOME, "/bin/").detail, "/")
+  assert.equal(Model.itemFor(HOME, "Code/").absolute, false)
+})
+
 test("helper output keeps its order and drops blank lines and trashed paths", () => {
   const rows = Model.rowsFromOutput(HOME, "a.txt\n\nPictures/\nb.png\n", { "/home/demo/b.png": true })
   assert.deepEqual(rows.map(r => r.name), ["a.txt", "Pictures"])
@@ -219,6 +247,13 @@ test("the search and Open With calls keep what was typed off the command line", 
   assert.deepEqual(listing.environment, { CRMNE_FILES_QUERY: "", CRMNE_FILES_FOLDER: "Documents" })
 
   assert.deepEqual(Model.searchCommand("h", HOME, "", "").command, ["h", "--root", HOME, "search"])
+
+  const typed = Model.searchCommand("h", HOME, "/etc/ho", "Documents")
+  assert.deepEqual(typed.command, ["h", "browse"])
+  assert.deepEqual(typed.environment, { CRMNE_FILES_QUERY: "ho", CRMNE_FILES_FOLDER: "/etc/" })
+  // "~/" is the real home, even while a demo root is searched.
+  assert.deepEqual(Model.searchCommand("h", "/tmp/demo", "~/Code/", "", HOME).environment,
+    { CRMNE_FILES_QUERY: "", CRMNE_FILES_FOLDER: "/home/demo/Code/" })
 
   const apps = Model.appsCommand("/plugin/bin/crmne-files", "/home/demo/Documents/taxes.pdf")
   assert.deepEqual(apps.command, ["/plugin/bin/crmne-files", "apps"])

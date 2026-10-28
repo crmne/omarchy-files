@@ -107,6 +107,7 @@ edit, navigate, or close the overlay are discarded.
 | Key | Results |
 |---|---|
 | typing | search everything under `~` |
+| `/` or `~/` first | browse that path anywhere on the system, narrowed by the name being typed |
 | `↑` `↓` `PgUp` `PgDn` | move |
 | `↵` | open (files in their default app, folders in Files) |
 | `→` | browse into a folder, or open the actions of a file |
@@ -116,6 +117,14 @@ edit, navigate, or close the overlay are discarded.
 
 Inside a folder, typing searches only that folder and everything below it, and
 going back restores the search and selection you came from.
+
+Type or paste a path to go anywhere, inside your home or not. `/` lists the
+top of the file system, `/etc/ho` lists `/etc` narrowed to names matching
+`ho`, and a full path such as `/etc/hosts` selects that file and previews it.
+`→` on a folder adds it to the path, and `←` or `Ctrl Backspace` climbs back
+one folder at a time. A typed path lists everything in the folder, including
+symbolic links and files your `.gitignore` excludes; hidden entries appear
+once the name you type starts with a dot.
 
 | Key | Actions panel |
 |---|---|
@@ -182,8 +191,8 @@ and fixed demuxers, preventing playlist URLs or referenced files from being open
 Image input is limited to 8 MiB and 16 million pixels, thumbnails to 512 pixels,
 PDFs to 64 MiB, Office/EPUB documents to 32 MiB, archives to 128 MiB, and media to
 2 GiB. No snippets, thumbnails or audio are written to disk or sent over the
-network. Symbolic links, special files, and paths outside the search folder do
-not get content previews. Unsupported, encrypted or over-limit files show file
+network. Symbolic links and special files do not get content previews. Paths
+outside the search folder are previewed only when you type or paste their path. Unsupported, encrypted or over-limit files show file
 information or an unavailable message. The pane hides below 900 logical pixels
 of screen width.
 
@@ -287,6 +296,7 @@ The helper is usable on its own:
 bin/crmne-files index            # build the index now
 CRMNE_FILES_QUERY="tax 2025" bin/crmne-files search
 CRMNE_FILES_FOLDER=Downloads bin/crmne-files list
+CRMNE_FILES_FOLDER=/etc CRMNE_FILES_QUERY=host bin/crmne-files browse   # any absolute folder
 CRMNE_FILES_PATH=~/Pictures/photo.jpg bin/crmne-files apps
 CRMNE_FILES_QUERY=notes bin/crmne-files --root /tmp/demo search   # any folder in place of ~
 ```
