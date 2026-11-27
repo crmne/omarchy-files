@@ -153,6 +153,17 @@ ShellRoot {
       verify(key(Qt.Key_Left))
       compare(files.view, "results")
     }
+    function test_held_enter_does_not_confirm_trash() {
+      var target = {name: "missing.txt", path: Quickshell.env("FILES_TEST_HOME") + "/missing.txt", isDir: false}
+      files.runAction("trash", target)
+      verify(files.trashConfirmOpen)
+      verify(files.handleTrashKey({key: Qt.Key_Return, modifiers: Qt.NoModifier, text: "", isAutoRepeat: true}))
+      verify(files.handleTrashKey({key: Qt.Key_Enter, modifiers: Qt.KeypadModifier, text: "", isAutoRepeat: true}))
+      verify(files.trashConfirmOpen)
+      compare(files.trashTarget, target)
+      verify(files.handleTrashKey({key: Qt.Key_Escape, modifiers: Qt.NoModifier, text: "", isAutoRepeat: false}))
+      verify(!files.trashConfirmOpen)
+    }
     function test_navigation_still_works() {
       files.setQuery("hello world")
       files.handleKey({key: Qt.Key_Backspace, modifiers: Qt.ControlModifier, text: ""})

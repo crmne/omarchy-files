@@ -514,6 +514,14 @@ Item {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
+  // Keys while the Trash confirmation is open. A held Enter that opened it
+  // keeps sending auto-repeat events, which must not confirm it: only a
+  // fresh press does.
+  function handleTrashKey(event) {
+    if (event.isAutoRepeat && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) return true
+    return trashConfirm.handleKey(event)
+  }
+
   function confirmTrash() {
     var target = root.trashTarget
     root.trashConfirmOpen = false
@@ -804,7 +812,7 @@ Item {
         Keys.onPressed: function(event) {
           if (root.settingsVisible) { event.accepted = false; return }
           if (root.trashConfirmOpen) {
-            if (trashConfirm.handleKey(event)) event.accepted = true
+            if (root.handleTrashKey(event)) event.accepted = true
             return
           }
           if (root.handleKey(event)) event.accepted = true
