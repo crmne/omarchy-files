@@ -143,13 +143,19 @@ def document(source, ext):
             if name=='xl/sharedStrings.xml':
                 shared=[''.join(node.itertext()) for node in tree];continue
             if ext=='.xlsx':
+                # Shared strings are stored once and can be referenced by every
+                # cell, so stop expanding them once the preview limit is reached.
+                total=0
                 for row in tree.iter():
+                    if total>TEXT_LIMIT:break
                     if row.tag.rsplit('}',1)[-1]!='row':continue
                     cells=[]
                     for cell in row:
                         value=''.join(cell.itertext())
                         if cell.get('t')=='s' and value.isdigit() and int(value)<len(shared):value=shared[int(value)]
-                        cells.append(value)
+                        value=value[:TEXT_LIMIT+1-total]
+                        cells.append(value);total+=len(value)+1
+                        if total>TEXT_LIMIT:break
                     pieces.append('\t'.join(cells))
             else: pieces.append('\n'.join(t.strip() for t in tree.itertext() if t.strip()))
             if sum(map(len,pieces))>TEXT_LIMIT:break

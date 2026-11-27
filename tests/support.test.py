@@ -85,6 +85,18 @@ class SupportTests(unittest.TestCase):
         with zipfile.ZipFile(p,'w') as z:z.writestr('../../do-not-extract.txt','private')
         self.assertIn('do-not-extract',self.preview(p)['result']['text'])
         self.assertFalse((self.home.parent/'do-not-extract.txt').exists())
+    def test_spreadsheet_shared_strings_are_bounded_before_expanding(self):
+        import zipfile
+        p=self.home/'shared.xlsx'
+        text='Shared cell '+'x'*(200*1024)
+        row='<row>'+'<c t="s"><v>0</v></c>'*600+'</row>'
+        with zipfile.ZipFile(p,'w',zipfile.ZIP_DEFLATED) as z:
+            z.writestr('xl/sharedStrings.xml','<sst><si><t>'+text+'</t></si></sst>')
+            z.writestr('xl/worksheets/sheet1.xml','<worksheet><sheetData>'+row*10+'</sheetData></worksheet>')
+        result=self.preview(p)
+        self.assertTrue(result['ok'],result)
+        self.assertTrue(result['result']['text'].startswith('Shared cell x'))
+        self.assertLessEqual(len(result['result']['text']),16384)
     def test_svg_rejects_external_references_and_entities(self):
         p=self.home/'drawing.svg'
         p.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="red"/></svg>')
